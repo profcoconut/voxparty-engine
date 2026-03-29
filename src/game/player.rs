@@ -11,6 +11,15 @@ pub enum PlayerState {
     Won,
 }
 
+/// Events that can occur during a player tick, returned for audio/UI wiring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerEvent {
+    Moved,
+    Eliminated,
+    Checkpoint,
+    Won,
+}
+
 pub struct Player {
     pub id: u8,
     pub grid_x: i32,
@@ -24,6 +33,8 @@ pub struct Player {
     pub anim: AnimPlayer,
     /// Movement cooldown timer in seconds
     move_cooldown: f32,
+    /// Number of times this player has respawned
+    pub respawn_count: u32,
 }
 
 impl Player {
@@ -38,6 +49,7 @@ impl Player {
             checkpoint_y: y,
             anim: AnimPlayer::new(),
             move_cooldown: 0.0,
+            respawn_count: 0,
         }
     }
 
@@ -45,14 +57,15 @@ impl Player {
     /// `inputs` — parsed directional inputs from virtual gamepad.
     /// `world` — mutable world (for traps, checkpoints).
     /// `sheet` — sprite sheet for animation.
-    pub fn tick(&mut self, dt: f32, inputs: &[GameInput], world: &mut World, sheet: &SpriteSheet) {
+    /// Returns an event if something significant happened (for audio/UI wiring).
+    pub fn tick(&mut self, dt: f32, inputs: &[GameInput], world: &mut World, sheet: &SpriteSheet) -> Option<PlayerEvent> {
         // Cooldown countdown
         if self.move_cooldown > 0.0 {
             self.move_cooldown -= dt;
         }
 
         match self.state {
-            PlayerState::Eliminated | PlayerState::Won => return,
+            PlayerState::Eliminated | PlayerState::Won => return None,
             _ => {}
         }
 
@@ -61,7 +74,7 @@ impl Player {
 
         // Don't move if still in cooldown
         if self.move_cooldown > 0.0 {
-            return;
+            return None;
         }
 
         // Determine direction from inputs
@@ -86,11 +99,12 @@ impl Player {
                 // Check traps (after moving — player stands on trap tile)
                 if world.check_trap(new_x, new_y) {
                     self.state = PlayerState::Eliminated;
-                    return;
+                    return Some(PlayerEvent::Eliminated);
                 }
 
                 // Check checkpoint
-                if world.check_checkpoint(new_x, new_y) {
+                let got_checkpoint = world.check_checkpoint(new_x, new_y);
+                if got_checkpoint {
                     self.checkpoint_x = new_x;
                     self.checkpoint_y = new_y;
                 }
@@ -98,13 +112,15 @@ impl Player {
                 // Check win condition
                 if world.check_goal(new_x, new_y) {
                     self.state = PlayerState::Won;
-                    return;
+                    return Some(PlayerEvent::Won);
                 }
 
                 // Still alive and moved — update animation
                 let anim_name = if self.id == 1 { "run_p1" } else { "run_p2" };
                 self.anim.play(anim_name, sheet, false);
+                self.anim.advance(sheet);
                 self.state = PlayerState::Moving;
+                return Some(if got_checkpoint { PlayerEvent::Checkpoint } else { PlayerEvent::Moved });
             } else {
                 // Blocked — go idle
                 if self.state == PlayerState::Moving {
@@ -121,6 +137,7 @@ impl Player {
                 self.anim.play(idle_name, sheet, false);
             }
         }
+        None
     }
 
     /// Respawn at last checkpoint (call after elimination).
@@ -128,6 +145,12 @@ impl Player {
         self.grid_x = self.checkpoint_x;
         self.grid_y = self.checkpoint_y;
         self.state = PlayerState::Idle;
+        self.respawn_count += 1;
+    }
+
+    /// Return remaining lives (3 - respawn_count).
+    pub fn lives(&self) -> u32 {
+        3u32.saturating_sub(self.respawn_count)
     }
 }
 
@@ -148,6 +171,7 @@ mod tests {
             "title": "Test",
             "mode": "solo",
             "theme": "cave",
+            "difficulty": "easy",
             "duration_target_seconds": 60,
             "tile_width": 64,
             "tile_height": 32,
@@ -194,6 +218,45 @@ mod tests {
         assert_eq!(p.grid_x, 5);
         assert_eq!(p.grid_y, 5);
         assert_eq!(p.state, PlayerState::Idle);
+    }
+
+    /// Regression test for qa-1: checkpoint_y must be set to new_y, not new_x.
+    /// When player reaches a checkpoint at (6, 5), checkpoint_y should be 5, not 6.
+    #[test]
+    fn test_checkpoint_y_is_correctly_set_to_new_y() {
+        let json = r#"{
+            "id": "ep_cp_y_test",
+            "title": "Checkpoint Y Test",
+            "mode": "solo",
+            "theme": "cave",
+            "difficulty": "easy",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [{"x": 6, "y": 5}],
+            "spawn_points": [{"player": 1, "x": 5, "y": 5}],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        let spawn_x = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().x;
+        let spawn_y = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().y;
+        let mut world = World::from_episode(ep);
+
+        let mut player = Player::new(1, spawn_x, spawn_y);
+
+        // Move right to checkpoint at (6, 5)
+        let sheet = SpriteSheet::from_json(&crate::assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        // Verify checkpoint coordinates are correct
+        assert_eq!(player.checkpoint_x, 6, "checkpoint_x should be 6");
+        assert_eq!(player.checkpoint_y, 5, "checkpoint_y should be 5, not 6 (qa-1 regression)");
     }
 
     #[test]

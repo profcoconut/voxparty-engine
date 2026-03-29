@@ -17,6 +17,10 @@ pub struct Camera {
     pub deadzone: f32,
     /// Lerp speed toward target (0.0..1.0)
     pub lerp_speed: f32,
+    /// Screen shake timer (seconds remaining)
+    shake_timer: f32,
+    /// Screen shake intensity (pixel offset magnitude)
+    shake_intensity: f32,
 }
 
 impl Camera {
@@ -39,6 +43,8 @@ impl Camera {
             world_h,
             deadzone: 0.2,
             lerp_speed: 0.1,
+            shake_timer: 0.0,
+            shake_intensity: 0.0,
         }
     }
 
@@ -80,7 +86,44 @@ impl Camera {
         // Lerp toward target
         self.x += (self.target_x - self.x) * self.lerp_speed;
         self.y += (self.target_y - self.y) * self.lerp_speed;
+
+        // Apply screen shake (overrides camera position for a few frames)
+        if self.shake_timer > 0.0 {
+            let shake_x = (rand_simple() * 2.0 - 1.0) * self.shake_intensity;
+            let shake_y = (rand_simple() * 2.0 - 1.0) * self.shake_intensity;
+            self.x += shake_x;
+            self.y += shake_y;
+        }
     }
+
+    /// Trigger a screen shake effect.
+    /// `intensity` is the maximum pixel offset magnitude.
+    /// `duration` is how long the shake lasts in seconds.
+    pub fn shake(&mut self, intensity: f32, duration: f32) {
+        self.shake_intensity = intensity;
+        self.shake_timer = duration;
+    }
+
+    /// Decay the screen shake timer by `dt` seconds.
+    pub fn tick(&mut self, dt: f32) {
+        if self.shake_timer > 0.0 {
+            self.shake_timer -= dt;
+            if self.shake_timer < 0.0 {
+                self.shake_timer = 0.0;
+            }
+        }
+    }
+}
+
+/// Simple deterministic pseudo-random (for shake jitter, no external dependency).
+fn rand_simple() -> f32 {
+    // Uses the system time or a counter for slight variation
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    (nanos as f32 * 0.618034).fract()
 }
 
 #[cfg(test)]
@@ -137,5 +180,31 @@ mod tests {
         // With world smaller than screen, clamping puts camera at 0 (can't go negative)
         assert_eq!(cam.target_x, 0.0, "camera clamped to 0 when world < screen width");
         assert_eq!(cam.target_y, 0.0, "camera clamped to 0 when world < screen height");
+    }
+
+    #[test]
+    fn test_shake_sets_timer_and_intensity() {
+        let mut cam = Camera::new(1280, 720, 16, 16);
+        cam.shake(5.0, 0.1);
+        assert_eq!(cam.shake_intensity, 5.0);
+        assert_eq!(cam.shake_timer, 0.1);
+    }
+
+    #[test]
+    fn test_shake_timer_decay() {
+        let mut cam = Camera::new(1280, 720, 16, 16);
+        cam.shake(5.0, 0.1);
+        cam.tick(0.05);
+        assert!(cam.shake_timer > 0.0, "shake timer should decay but not be zero yet");
+        cam.tick(0.05);
+        assert_eq!(cam.shake_timer, 0.0, "shake timer should be zero after full decay");
+    }
+
+    #[test]
+    fn test_shake_does_not_go_negative() {
+        let mut cam = Camera::new(1280, 720, 16, 16);
+        cam.shake(5.0, 0.1);
+        cam.tick(0.2); // decay past zero
+        assert_eq!(cam.shake_timer, 0.0, "shake timer should not go negative");
     }
 }

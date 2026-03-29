@@ -98,6 +98,8 @@ pub struct AnimPlayer {
     current_anim: Option<String>,
     frame_index: usize,
     frame_timer: f32,
+    /// Cached current frame (updated by tick(), used by render)
+    current_frame: Option<SpriteFrame>,
 }
 
 impl AnimPlayer {
@@ -106,7 +108,13 @@ impl AnimPlayer {
             current_anim: None,
             frame_index: 0,
             frame_timer: 0.0,
+            current_frame: None,
         }
+    }
+
+    /// Get the current animation frame (from last tick) without advancing.
+    pub fn current_frame(&self) -> Option<&SpriteFrame> {
+        self.current_frame.as_ref()
     }
 
     /// Start playing an animation. `force` restarts even if already playing.
@@ -119,11 +127,31 @@ impl AnimPlayer {
         self.frame_timer = 0.0;
     }
 
+    /// Explicitly advance the animation by one frame.
+    /// Called after play() to step to the next frame immediately.
+    pub fn advance(&mut self, sheet: &SpriteSheet) {
+        if self.current_anim.is_none() {
+            return;
+        }
+        let anim_name = self.current_anim.as_ref().unwrap();
+        let anim = match sheet.animations.get(anim_name) {
+            Some(a) => a,
+            None => return,
+        };
+        if anim.frames.is_empty() {
+            return;
+        }
+        self.frame_index = (self.frame_index + 1) % anim.frames.len().max(1);
+        self.current_frame = Some(anim.frames[self.frame_index].clone());
+    }
+
     /// Advance animation by `dt` seconds. Returns the current frame, if any.
+    /// Also stores the frame in `self.current_frame` for retrieval via `current_frame()`.
     pub fn tick<'a>(&mut self, dt: f32, sheet: &'a SpriteSheet) -> Option<&'a SpriteFrame> {
         let anim_name = self.current_anim.as_ref()?;
         let anim = sheet.animations.get(anim_name)?;
         if anim.frames.is_empty() {
+            self.current_frame = None;
             return None;
         }
 
@@ -133,6 +161,7 @@ impl AnimPlayer {
             self.frame_timer -= frame_duration;
             self.frame_index = (self.frame_index + 1) % anim.frames.len().max(1);
         }
+        self.current_frame = Some(anim.frames[self.frame_index].clone());
         Some(&anim.frames[self.frame_index])
     }
 }

@@ -52,4 +52,20 @@ impl Npc {
         // Bubble appears above the NPC sprite
         (px as i32, (py - TILE_H - 24.0) as i32)
     }
+
+    /// Get the currently displayed dialogue line (the line shown in the bubble).
+    /// Note: after interact() is called, current_line points to the NEXT line,
+    /// so this returns current_line - 1 (with wrap-around).
+    pub fn current_line_text(&self) -> Option<&str> {
+        if self.dialogue.is_empty() {
+            return None;
+        }
+        // current_line already advanced past the displayed line
+        let idx = if self.current_line == 0 {
+            self.dialogue.len() - 1
+        } else {
+            self.current_line - 1
+        };
+        self.dialogue.get(idx).map(|s| s.as_str())
+    }
 }
