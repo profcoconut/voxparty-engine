@@ -58,6 +58,12 @@ pub struct Scene {
     pub tutorial_visible: bool,
     /// episode-select-1: Index of the currently selected episode in the episode list
     pub selected_episode_index: usize,
+    /// npc-hints-1: Player died (lost a life) since last episode start
+    pub player_died_this_run: bool,
+    /// npc-hints-1: Player reached a checkpoint since last episode start
+    pub checkpoint_hit_this_run: bool,
+    /// npc-hints-1: Player has interacted with an NPC this episode
+    pub npc_seen_this_episode: bool,
 }
 
 impl Scene {
@@ -76,6 +82,9 @@ impl Scene {
             save_data,
             tutorial_visible: false,
             selected_episode_index: 0,
+            player_died_this_run: false,
+            checkpoint_hit_this_run: false,
+            npc_seen_this_episode: false,
         }
     }
 
@@ -176,6 +185,10 @@ impl Scene {
         self.titlecard_pulse_timer = 0.0;
         // tutorial-1: request tutorial overlay before entering Playing
         self.request_tutorial();
+        // npc-hints-1: reset per-run NPC hint state
+        self.player_died_this_run = false;
+        self.checkpoint_hit_this_run = false;
+        self.npc_seen_this_episode = false;
     }
 
     /// Advance scene timers by `dt` seconds.

@@ -117,10 +117,11 @@
       "y": 2,
       "name": "Guide",
       "dialogue": [
-        "Welcome to VoxParty!",
-        "Use ARROW KEYS to move.",
-        "Reach the EXIT to win!",
-        "Avoid the lava tiles!"
+        "Welcome to VoxParty, brave adventurer!",
+        "Use ARROW KEYS or your gamepad to move around.",
+        "Reach the glowing EXIT tile to claim victory!",
+        "Those red lava tiles? They'll reset you in 3 seconds flat!",
+        "Checkpoints save your progress - look for the blue pillars!"
       ]
     },
     {
@@ -128,8 +129,10 @@
       "y": 7,
       "name": "Helper",
       "dialogue": [
-        "That lava resets after 3 seconds.",
-        "Use the checkpoints to save your progress!"
+        "Psst! Those lava tiles are sneaky little devils.",
+        "They flicker and fade, but they'll burn you every time.",
+        "Tip: Watch the pattern before you step. Patience wins races!",
+        "And hey, if you fall... checkpoints have your back."
       ]
     }
   ],

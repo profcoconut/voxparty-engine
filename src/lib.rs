@@ -233,10 +233,12 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let _ = audio.load_sfx("jump", "assets/sounds/jump.wav");
     let _ = audio.load_sfx("eliminate", "assets/sounds/eliminate.wav");
     let _ = audio.load_sfx("checkpoint", "assets/sounds/checkpoint.wav");
+    // volume-control-1: Apply saved volume setting
+    audio.set_volume(scene.save_data.audio_volume);
     // minpoc-4: Background music — play synthesized stub (no audio files needed)
     audio.play_music_stub();
     // soundtrack-1: Per-episode chiptune music using rodio synthesis
-    audio.play_music_episode(&episode.id);
+    audio.play_music_episode(&episode);
 
     // Debug overlay
     let mut debug = DebugOverlay::new();
@@ -247,6 +249,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let mut pending_sprite_reload = false;
     // Interact input — set by E key, processed in game loop
     let mut interact_pressed = false;
+    // Dialogue advance input — set by A/Enter/Space keys when dialogue is visible
+    let mut dialogue_advance = false;
     // debug-screenshot-1: F12 screenshot flash timer
     let mut screenshot_flash_timer = 0.0f32;
     // debug-screenshot-1: Deferred screenshot path (set in event loop, processed after)
@@ -300,8 +304,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                             crate::game::TileType::Passable => sdl2::rect::Rect::new(0, 0, 64, 32),   // grass_passable
                             crate::game::TileType::Solid => sdl2::rect::Rect::new(64, 0, 64, 32),    // grass_solid
                             crate::game::TileType::Trap => sdl2::rect::Rect::new(128, 0, 64, 32),    // lava_trap
-                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0, 0, 64, 32), // grass (checkpoint uses this sprite)
-                            crate::game::TileType::Goal => sdl2::rect::Rect::new(192, 0, 64, 32),    // goal_tile
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(512, 0, 64, 32), // checkpoint
+                            crate::game::TileType::Goal => sdl2::rect::Rect::new(576, 0, 64, 32),    // goal
                         };
                         let _ = plat.blit_sprite("tiles", dst, Some(src));
                     }
@@ -311,7 +315,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let src = chars_sheet.frames.get("player1_idle")
+                    let src = chars_sheet.frames.get("npc_idle")
                         .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
                     let _ = plat.blit_sprite("characters", dst, src);
                 }
@@ -373,8 +377,24 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         debug.toggle_fps();
                         eprintln!("[DEBUG] FPS counter: {}", if debug.is_fps_visible() { "ON" } else { "OFF" });
                     }
+                    // volume-control-1: F7 decreases volume, F8 increases volume
+                    sdl2::keyboard::Scancode::F7 => {
+                        let new_vol = (scene.save_data.audio_volume - 0.1).max(0.0);
+                        scene.save_data.audio_volume = new_vol;
+                        audio.set_volume(new_vol);
+                        scene.save();
+                        eprintln!("[VOLUME] {}%", (new_vol * 100.0).round() as i32);
+                    }
+                    sdl2::keyboard::Scancode::F8 => {
+                        let new_vol = (scene.save_data.audio_volume + 0.1).min(1.0);
+                        scene.save_data.audio_volume = new_vol;
+                        audio.set_volume(new_vol);
+                        scene.save();
+                        eprintln!("[VOLUME] {}%", (new_vol * 100.0).round() as i32);
+                    }
                     // episode-select-1: Wire Menu → EpisodeSelect transition
                     sdl2::keyboard::Scancode::Space | sdl2::keyboard::Scancode::Return => {
+                        haptic.vibrate(20, 0.5); // haptics-1: menu button press
                         if scene.state == SceneState::Menu {
                             scene.start_episode_select();
                         } else if scene.state == SceneState::EpisodeSelect {
@@ -402,11 +422,35 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                 // Start the game (transitions to TitleCard)
                                 scene.start_game();
                             }
+                        } else if scene.state == SceneState::Victory {
+                            // victory-gameover-input: ENTER replays episode
+                            if let Some(last_ep) = scene.save_data.last_episode.clone() {
+                                let ep_path = format!("{}/{}.json", EPISODES_DIR, last_ep);
+                                if let Ok((new_ep, new_world, new_p1, new_p2, new_npcs, new_cam)) =
+                                    reload_episode_game_state(&ep_path, screen_w, screen_h)
+                                {
+                                    episode = new_ep;
+                                    world = new_world;
+                                    player1 = new_p1;
+                                    player2 = new_p2;
+                                    npcs = new_npcs;
+                                    camera = new_cam;
+                                    scene.state = SceneState::Playing;
+                                    scene.title_timer = 0.0;
+                                }
+                            }
+                        } else if scene.state == SceneState::GameOver {
+                            // victory-gameover-input: ENTER returns to menu
+                            scene.return_to_menu();
+                        } else if scene.state == SceneState::Playing {
+                            // dialogue-advance: A/Enter/Space advances NPC dialogue
+                            dialogue_advance = true;
                         }
                     }
                     // episode-select-1: Navigate up in episode list (also updates joystick when not in EpisodeSelect)
                     sdl2::keyboard::Scancode::Up => {
                         if scene.state == SceneState::EpisodeSelect {
+                            haptic.vibrate(20, 0.5); // haptics-1: menu navigation
                             scene.episode_select_up(episodes.len());
                         } else {
                             touch.player1.joystick_y = -1.0;
@@ -415,14 +459,17 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     // episode-select-1: Navigate down in episode list (also updates joystick when not in EpisodeSelect)
                     sdl2::keyboard::Scancode::Down => {
                         if scene.state == SceneState::EpisodeSelect {
+                            haptic.vibrate(20, 0.5); // haptics-1: menu navigation
                             scene.episode_select_down(episodes.len());
                         } else {
                             touch.player1.joystick_y = 1.0;
                         }
                     }
-                    // episode-select-1: ESC goes back to menu from episode select
+                    // victory-gameover-input: ESC returns to menu from GameOver, ESC goes back to menu from episode select
                     sdl2::keyboard::Scancode::Escape => {
-                        if scene.state == SceneState::EpisodeSelect {
+                        if scene.state == SceneState::GameOver {
+                            scene.return_to_menu();
+                        } else if scene.state == SceneState::EpisodeSelect {
                             scene.return_to_menu();
                         } else {
                             scene.toggle_pause();
@@ -547,6 +594,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
             // A button = confirm/interact
             if gc.button(Button::A) {
+                haptic.vibrate(20, 0.5); // haptics-1: button press
                 interact_pressed = true;
             }
 
@@ -554,6 +602,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             let start_pressed = gc.button(Button::Start);
             unsafe {
                 if start_pressed && !PREV_START {
+                    haptic.vibrate(20, 0.5); // haptics-1: button press
                     scene.toggle_pause();
                 }
                 PREV_START = start_pressed;
@@ -563,6 +612,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             let b_pressed = gc.button(Button::B);
             unsafe {
                 if b_pressed && !PREV_B && scene.state == SceneState::Paused {
+                    haptic.vibrate(20, 0.5); // haptics-1: button press
                     scene.return_to_menu();
                 }
                 PREV_B = b_pressed;
@@ -587,13 +637,30 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         }
 
         if scene.state == SceneState::Playing {
-            // Player 1 input
-            let p1_inputs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y);
-            if let Some(event) = player1.tick(dt, &p1_inputs, &mut world, &chars_sheet) {
+            // Player 1 input — use raw joystick values, quantize_direction handles deadzone + 8-way
+            let (p1_jx, p1_jy) = if let Some((target_x, target_y)) = touch.take_pending_move(camera.x, camera.y) {
+                // tap-to-move: convert grid delta to joystick-like values for quantize_direction
+                let dx = target_x - player1.grid_x;
+                let dy = target_y - player1.grid_y;
+                // Only allow 1-tile Manhattan distance (adjacent)
+                let manhattan = dx.abs() + dy.abs();
+                if manhattan <= 1 && manhattan > 0 && !world.is_solid(target_x, target_y) {
+                    (dx as f32, dy as f32)
+                } else {
+                    (touch.player1.joystick_x, touch.player1.joystick_y)
+                }
+            } else {
+                (touch.player1.joystick_x, touch.player1.joystick_y)
+            };
+
+            if let Some(event) = player1.tick(dt, p1_jx, p1_jy, &mut world, &chars_sheet) {
                 match event {
                     game::PlayerEvent::Moved => {
-                        audio.play_sfx("jump");
+                        // Play tile-appropriate step sound based on destination tile
+                        let tile_str = world.get_tile_string(player1.grid_x, player1.grid_y);
+                        audio.play_synth_step(&tile_str);
                         camera.shake(3.0, 0.08); // gamefeel-1: screen shake on valid move
+                        haptic.vibrate(30, 0.5); // haptics-1: light vibration on movement
                         // particle-1: spawn dust puff at player1's feet
                         let (p1x, p1y) = grid_to_screen(player1.grid_x as f32, player1.grid_y as f32, camera.x, camera.y);
                         particles.spawn(p1x, p1y + 8.0, ParticleType::MovementDust);
@@ -606,6 +673,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         particles.spawn(p1x, p1y, ParticleType::CheckpointSparkle);
                         // save-load-1: auto-save on checkpoint hit
                         scene.save();
+                        // npc-hints-1: mark that player hit a checkpoint this run
+                        scene.checkpoint_hit_this_run = true;
                     }
                     game::PlayerEvent::Eliminated => {
                         audio.play_sfx("eliminate");
@@ -613,18 +682,22 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         // particle-1: spawn trap flash at player1's position
                         let (p1x, p1y) = grid_to_screen(player1.grid_x as f32, player1.grid_y as f32, camera.x, camera.y);
                         particles.spawn(p1x, p1y, ParticleType::TrapFlash);
+                        // npc-hints-1: mark that player died this run (for NPC dialogue hints)
+                        scene.player_died_this_run = true;
                     }
-                    game::PlayerEvent::Won => audio.play_sfx("victory"),
+                    game::PlayerEvent::Won => audio.play_victory_jingle(),
                 }
             }
 
-            // Player 2 input
-            let p2_inputs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y);
-            if let Some(event) = player2.tick(dt, &p2_inputs, &mut world, &chars_sheet) {
+            // Player 2 input — use raw joystick values for 8-way movement
+            if let Some(event) = player2.tick(dt, touch.player2.joystick_x, touch.player2.joystick_y, &mut world, &chars_sheet) {
                 match event {
                     game::PlayerEvent::Moved => {
-                        audio.play_sfx("jump");
+                        // Play tile-appropriate step sound based on destination tile
+                        let tile_str = world.get_tile_string(player2.grid_x, player2.grid_y);
+                        audio.play_synth_step(&tile_str);
                         camera.shake(3.0, 0.08); // gamefeel-1: screen shake on valid move
+                        haptic.vibrate(30, 0.5); // haptics-1: light vibration on movement
                         // particle-1: spawn dust puff at player2's feet
                         let (p2x, p2y) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
                         particles.spawn(p2x, p2y + 8.0, ParticleType::MovementDust);
@@ -635,6 +708,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         // particle-1: spawn sparkle at player2's position
                         let (p2x, p2y) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
                         particles.spawn(p2x, p2y, ParticleType::CheckpointSparkle);
+                        // npc-hints-1: mark that player hit a checkpoint this run
+                        scene.checkpoint_hit_this_run = true;
                     }
                     game::PlayerEvent::Eliminated => {
                         audio.play_sfx("eliminate");
@@ -642,8 +717,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         // particle-1: spawn trap flash at player2's position
                         let (p2x, p2y) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
                         particles.spawn(p2x, p2y, ParticleType::TrapFlash);
+                        // npc-hints-1: mark that player died this run (for NPC dialogue hints)
+                        scene.player_died_this_run = true;
                     }
-                    game::PlayerEvent::Won => audio.play_sfx("victory"),
+                    game::PlayerEvent::Won => audio.play_victory_jingle(),
                 }
             }
 
@@ -657,11 +734,48 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             // minpoc-3: Process Interact input — find nearest NPC and trigger dialogue
             if interact_pressed {
                 interact_pressed = false;
+                // npc-hints-1: compute dialogue hint index based on game state
+                // 0 = encouraging (after death), 1 = progress (after checkpoint), 2 = repeat, 3 = first time
+                let hint_index = if scene.player_died_this_run {
+                    0
+                } else if scene.checkpoint_hit_this_run {
+                    1
+                } else if scene.npc_seen_this_episode {
+                    2
+                } else {
+                    3
+                };
                 // Find NPC adjacent to player1 (same tile)
                 for npc in &mut npcs {
                     if npc.grid_x == player1.grid_x && npc.grid_y == player1.grid_y {
+                        // dialogue-advance: If dialogue is visible, advance it instead of re-triggering
+                        if npc.bubble_visible() {
+                            let name = npc.name.clone();
+                            if let Some(line) = npc.advance() {
+                                eprintln!("[NPC] {}: {}", name, line);
+                            }
+                        } else {
+                            // Start new dialogue
+                            let name = npc.name.clone();
+                            if let Some(line) = npc.interact(hint_index) {
+                                eprintln!("[NPC] {}: {}", name, line);
+                            }
+                            // Mark that player has seen NPC this episode (for repeat-visit dialogue)
+                            scene.npc_seen_this_episode = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // dialogue-advance: Handle A/Enter/Space for advancing dialogue
+            if dialogue_advance {
+                dialogue_advance = false;
+                // Find NPC adjacent to player1 and advance dialogue
+                for npc in &mut npcs {
+                    if npc.grid_x == player1.grid_x && npc.grid_y == player1.grid_y {
                         let name = npc.name.clone();
-                        if let Some(line) = npc.interact() {
+                        if let Some(line) = npc.advance() {
                             eprintln!("[NPC] {}: {}", name, line);
                         }
                         break;
@@ -699,6 +813,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             // Last-standing: game-over only when BOTH eliminated simultaneously
             if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
                 scene.trigger_gameover(None); // draw
+                audio.play_gameover_sound();
             }
 
             // Game over timer done → return to menu
@@ -770,7 +885,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let header_mid = "|       V O X P A R T Y     |";
                 let header_bot = "+---------------------------+";
                 let header_w = header_top.len() as i32 * 6;
-                let header_x = 1280 / 2 - header_w / 2;
+                let header_x = plat.screen_width as i32 / 2 - header_w / 2;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     header_top,
@@ -804,7 +919,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let controls_box_top = "+-----------------------------+";
                 let controls_box_mid = "|  UP/DOWN  SELECT  ENTER PLAY |";
                 let controls_box_bot = "+-----------------------------+";
-                let box_x = 1280 / 2 - controls_box_top.len() as i32 * 3;
+                let box_x = plat.screen_width as i32 / 2 - controls_box_top.len() as i32 * 3;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     controls_box_top,
@@ -829,7 +944,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 // Draw "PRESS SPACE TO START" centered below
                 let subtitle = "PRESS SPACE TO START";
                 let sub_w = subtitle.len() as i32 * 6;
-                let sub_x = 1280 / 2 - sub_w / 2;
+                let sub_x = plat.screen_width as i32 / 2 - sub_w / 2;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     subtitle,
@@ -845,7 +960,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let header = "+-----------------------------+";
                 let header_text = "|    SELECT YOUR EPISODE      |";
                 let header_w = header.len() as i32 * 6;
-                let header_x = 1280 / 2 - header_w / 2;
+                let header_x = plat.screen_width as i32 / 2 - header_w / 2;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     header,
@@ -873,7 +988,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let card_width = 280;
                 let card_spacing = 20;
                 let total_width = episodes.len() as i32 * card_width + (episodes.len() - 1) as i32 * card_spacing;
-                let start_x = (1280 - total_width) / 2;
+                let start_x = (plat.screen_width as i32 - total_width) / 2;
                 let card_y = 200;
 
                 for (i, (ep_id, _ep_path)) in episodes.iter().enumerate() {
@@ -966,6 +1081,22 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         },
                     );
 
+                    // episode-select-besttimes-1: Display best time below title
+                    let best_time_str = match scene.save_data.best_times.get(&ep.id) {
+                        Some(&ms) => {
+                            let secs = ms as u32 / 1000;
+                            format!("BEST: {:02}:{:02}", secs / 60, secs % 60)
+                        }
+                        None => "BEST: --:--".to_string(),
+                    };
+                    DebugOverlay::draw_text(
+                        &mut plat.canvas,
+                        &format!("{} {}", sel_indicator, best_time_str),
+                        card_x,
+                        card_y + 75,
+                        sdl2::pixels::Color::RGBA(180, 180, 100, 255),
+                    );
+
                     let bot_border = format!("+{:-<width$}+", "", width = 34);
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
@@ -979,7 +1110,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 // Controls hint at bottom with box-drawing
                 let hint = "UP/DOWN SELECT   ENTER PLAY   ESC BACK";
                 let hint_w = hint.len() as i32 * 6;
-                let hint_x = 1280 / 2 - hint_w / 2;
+                let hint_x = plat.screen_width as i32 / 2 - hint_w / 2;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     hint,
@@ -996,7 +1127,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 // Draw episode title centered with animated opacity
                 let title = episode.title.as_str();
                 let title_w = title.len() as i32 * 6;
-                let title_x = 1280 / 2 - title_w / 2;
+                let title_x = plat.screen_width as i32 / 2 - title_w / 2;
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     title,
@@ -1012,7 +1143,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     let sub_opacity = pulse_opacity as u8;
                     let sub = "GET READY...";
                     let sub_w = sub.len() as i32 * 6;
-                    let sub_x = 1280 / 2 - sub_w / 2;
+                    let sub_x = plat.screen_width as i32 / 2 - sub_w / 2;
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         sub,
@@ -1037,8 +1168,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                             crate::game::TileType::Passable  => sdl2::rect::Rect::new(0,   0, 64, 32), // grass_passable
                             crate::game::TileType::Solid      => sdl2::rect::Rect::new(64,  0, 64, 32), // grass_solid
                             crate::game::TileType::Trap      => sdl2::rect::Rect::new(128, 0, 64, 32), // lava_trap
-                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0,   0, 64, 32), // grass (checkpoint uses this sprite)
-                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(192, 0, 64, 32), // goal_tile
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(512, 0, 64, 32), // checkpoint
+                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(576, 0, 64, 32), // goal
                         };
                         let _ = plat.blit_sprite("tiles", dst, Some(src));
                     }
@@ -1048,7 +1179,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let src = chars_sheet.frames.get("player1_idle")
+                    let src = chars_sheet.frames.get("npc_idle")
                         .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
                     let _ = plat.blit_sprite("characters", dst, src);
                 }
@@ -1101,11 +1232,27 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let bottom_border = format!("+{}+", "-".repeat((content_len + 1).max(0) as usize));
                 DebugOverlay::draw_text(&mut plat.canvas, &bottom_border, box_x, box_y + 18, text_color);
 
+                // volume-control-1: Small volume indicator in HUD corner
+                let vol = scene.save_data.audio_volume;
+                let vol_pct = (vol * 100.0).round() as i32;
+                let filled = ((vol * 10.0).round() as i32).max(0).min(10) as usize;
+                let bar: String = std::iter::repeat('*').take(filled)
+                    .chain(std::iter::repeat('-').take(10 - filled))
+                    .collect();
+                let vol_text = format!("VOL [{}] {}%", bar, vol_pct);
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    &vol_text,
+                    box_x,
+                    box_y + 27,
+                    sdl2::pixels::Color::RGBA(150, 150, 150, 255),
+                );
+
                 // tutorial-1: Draw tutorial overlay during Playing (before first move)
                 if scene.tutorial_visible && scene.state == SceneState::Playing {
                     // Dark semi-transparent overlay
                     plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 180));
-                    let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 200, 1280, 320));
+                    let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 200, plat.screen_width, 320));
 
                     // Title: "VOXPARTY CONTROLS"
                     let title = "VOXPARTY CONTROLS";
@@ -1113,7 +1260,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         title,
-                        1280 / 2 - title_w / 2,
+                        plat.screen_width as i32 / 2 - title_w / 2,
                         220,
                         sdl2::pixels::Color::RGBA(80, 255, 120, 255),
                     );
@@ -1130,7 +1277,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         DebugOverlay::draw_text(
                             &mut plat.canvas,
                             line,
-                            1280 / 2 - line_w / 2,
+                            plat.screen_width as i32 / 2 - line_w / 2,
                             y,
                             sdl2::pixels::Color::RGBA(200, 200, 200, 255),
                         );
@@ -1142,7 +1289,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         dismiss,
-                        1280 / 2 - dismiss_w / 2,
+                        plat.screen_width as i32 / 2 - dismiss_w / 2,
                         420,
                         sdl2::pixels::Color::RGBA(150, 150, 150, 255),
                     );
@@ -1152,7 +1299,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 if scene.state == SceneState::GameOver {
                     // Semi-transparent dark overlay
                     plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 150));
-                    let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 280, 1280, 160));
+                    let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 280, plat.screen_width, 160));
 
                     // Game Over text
                     let go_text = "GAME OVER";
@@ -1160,7 +1307,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         go_text,
-                        1280 / 2 - go_w / 2,
+                        plat.screen_width as i32 / 2 - go_w / 2,
                         310,
                         sdl2::pixels::Color::RGBA(255, 80, 80, 255),
                     );
@@ -1177,7 +1324,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         result_text,
-                        1280 / 2 - result_w / 2,
+                        plat.screen_width as i32 / 2 - result_w / 2,
                         370,
                         sdl2::pixels::Color::RGBA(200, 200, 200, 255),
                     );
@@ -1189,27 +1336,69 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     DebugOverlay::draw_text(
                         &mut plat.canvas,
                         &countdown_text,
-                        1280 / 2 - countdown_w / 2,
+                        plat.screen_width as i32 / 2 - countdown_w / 2,
                         410,
                         sdl2::pixels::Color::RGBA(150, 150, 150, 255),
                     );
                 }
 
-                // Draw NPC dialogue bubbles
-                for npc in &npcs {
+                // Draw NPC dialogue bubbles with portrait
+                for (npc_index, npc) in npcs.iter().enumerate() {
                     if npc.bubble_visible() {
                         let (bx, by) = npc.bubble_screen_xy(camera.x, camera.y);
                         if let Some(line) = npc.current_line_text() {
                             eprintln!("[DIALOGUE] {}: {}", npc.name, line);
-                            // Draw a simple debug rectangle as bubble placeholder
+                            // Draw bubble background
                             let bubble_rect = sdl2::rect::Rect::new(bx, by - 24, 200, 32);
                             plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 255, 200, 230));
                             let _ = plat.canvas.fill_rect(bubble_rect);
-                            // Render the dialogue text inside the bubble
+
+                            // Draw portrait: 28x28 colored rectangle on left side of bubble
+                            let portrait_size = 28;
+                            let portrait_x = bx + 2;
+                            let portrait_y = by - 24 + 2; // center vertically in 32px bubble
+                            let portrait_rect = sdl2::rect::Rect::new(portrait_x, portrait_y, portrait_size as u32, portrait_size as u32);
+
+                            // Border (dark brown)
+                            plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(80, 50, 30, 255));
+                            let _ = plat.canvas.fill_rect(portrait_rect);
+
+                            // Inner portrait with NPC color based on index
+                            let inner_size = 24;
+                            let inner_x = portrait_x + 2;
+                            let inner_y = portrait_y + 2;
+                            let inner_rect = sdl2::rect::Rect::new(inner_x, inner_y, inner_size as u32, inner_size as u32);
+
+                            // Cycle through 3 colors: blue, green, orange
+                            let portrait_color = match npc_index % 3 {
+                                0 => sdl2::pixels::Color::RGBA(100, 150, 255, 255), // blue
+                                1 => sdl2::pixels::Color::RGBA(100, 255, 150, 255), // green
+                                _ => sdl2::pixels::Color::RGBA(255, 180, 100, 255), // orange
+                            };
+                            plat.canvas.set_draw_color(portrait_color);
+                            let _ = plat.canvas.fill_rect(inner_rect);
+
+                            // Draw NPC initial in center of portrait
+                            if !npc.name.is_empty() {
+                                let initial = npc.name.chars().next().unwrap_or('?');
+                                let initial_str = initial.to_uppercase().to_string();
+                                // Center the initial in the 24x24 inner rect (approx 4px per char)
+                                let text_x = portrait_x + portrait_size as i32 / 2 - 6;
+                                let text_y = portrait_y + portrait_size as i32 / 2 - 4;
+                                DebugOverlay::draw_text(
+                                    &mut plat.canvas,
+                                    &initial_str,
+                                    text_x,
+                                    text_y,
+                                    sdl2::pixels::Color::RGBA(0, 0, 0, 255),
+                                );
+                            }
+
+                            // Render the dialogue text inside the bubble (shifted right for portrait)
                             DebugOverlay::draw_text(
                                 &mut plat.canvas,
                                 &line,
-                                bx + 4,
+                                bx + 34,
                                 by - 20,
                                 sdl2::pixels::Color::RGBA(0, 0, 0, 255),
                             );
@@ -1232,8 +1421,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                             crate::game::TileType::Passable  => sdl2::rect::Rect::new(0,   0, 64, 32),
                             crate::game::TileType::Solid      => sdl2::rect::Rect::new(64,  0, 64, 32),
                             crate::game::TileType::Trap      => sdl2::rect::Rect::new(128, 0, 64, 32),
-                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0,   0, 64, 32),
-                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(192, 0, 64, 32),
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(512, 0, 64, 32),
+                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(576, 0, 64, 32),
                         };
                         let _ = plat.blit_sprite("tiles", dst, Some(src));
                     }
@@ -1243,7 +1432,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let src = chars_sheet.frames.get("player1_idle")
+                    let src = chars_sheet.frames.get("npc_idle")
                         .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
                     let _ = plat.blit_sprite("characters", dst, src);
                 }
@@ -1260,9 +1449,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 // victory-ascii-1: ASCII art victory screen
                 // Larger overlay to fit ASCII art
                 plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 200));
-                let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 160, 1280, 380));
+                let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 160, plat.screen_width, 380));
 
-                let center_x = 1280 / 2;
+                let center_x = plat.screen_width as i32 / 2;
                 let text_color = sdl2::pixels::Color::RGBA(80, 255, 120, 255);
                 let gold_color = sdl2::pixels::Color::RGBA(255, 215, 80, 255);
                 let gray_color = sdl2::pixels::Color::RGBA(180, 180, 180, 255);
@@ -1378,8 +1567,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                             crate::game::TileType::Passable  => sdl2::rect::Rect::new(0,   0, 64, 32),
                             crate::game::TileType::Solid      => sdl2::rect::Rect::new(64,  0, 64, 32),
                             crate::game::TileType::Trap      => sdl2::rect::Rect::new(128, 0, 64, 32),
-                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0,   0, 64, 32),
-                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(192, 0, 64, 32),
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(512, 0, 64, 32),
+                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(576, 0, 64, 32),
                         };
                         let _ = plat.blit_sprite("tiles", dst, Some(src));
                     }
@@ -1389,7 +1578,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let src = chars_sheet.frames.get("player1_idle")
+                    let src = chars_sheet.frames.get("npc_idle")
                         .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
                     let _ = plat.blit_sprite("characters", dst, src);
                 }
@@ -1405,7 +1594,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
                 // Pause overlay: semi-transparent dark overlay
                 plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 160));
-                let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 0, 1280, 720));
+                let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 0, plat.screen_width, 720));
 
                 // "PAUSED" text centered
                 let paused_text = "PAUSED";
@@ -1413,7 +1602,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     paused_text,
-                    1280 / 2 - paused_w / 2,
+                    plat.screen_width as i32 / 2 - paused_w / 2,
                     280,
                     sdl2::pixels::Color::RGBA(255, 255, 255, 255),
                 );
@@ -1424,7 +1613,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     resume_text,
-                    1280 / 2 - resume_w / 2,
+                    plat.screen_width as i32 / 2 - resume_w / 2,
                     340,
                     sdl2::pixels::Color::RGBA(200, 200, 200, 255),
                 );
@@ -1435,9 +1624,38 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 DebugOverlay::draw_text(
                     &mut plat.canvas,
                     quit_text,
-                    1280 / 2 - quit_w / 2,
+                    plat.screen_width as i32 / 2 - quit_w / 2,
                     380,
                     sdl2::pixels::Color::RGBA(150, 150, 150, 255),
+                );
+
+                // volume-control-1: Volume indicator with ASCII bar
+                let vol = scene.save_data.audio_volume;
+                let vol_pct = (vol * 100.0).round() as i32;
+                // Build ASCII bar: 10 segments
+                let filled = ((vol * 10.0).round() as i32).max(0).min(10) as usize;
+                let bar: String = std::iter::repeat('*').take(filled)
+                    .chain(std::iter::repeat('-').take(10 - filled))
+                    .collect();
+                let vol_text = format!("VOL: [{}] {}%", bar, vol_pct);
+                let vol_w = vol_text.len() as i32 * 6;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    &vol_text,
+                    plat.screen_width as i32 / 2 - vol_w / 2,
+                    430,
+                    sdl2::pixels::Color::RGBA(180, 180, 180, 255),
+                );
+
+                // volume-control-1: F7/F8 hint
+                let vol_hint = "F7: -   F8: +";
+                let vol_hint_w = vol_hint.len() as i32 * 6;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    vol_hint,
+                    plat.screen_width as i32 / 2 - vol_hint_w / 2,
+                    460,
+                    sdl2::pixels::Color::RGBA(120, 120, 120, 255),
                 );
             }
         }
@@ -1455,7 +1673,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             DebugOverlay::draw_text(
                 &mut plat.canvas,
                 text,
-                1280 / 2 - text_w / 2,
+                plat.screen_width as i32 / 2 - text_w / 2,
                 100,
                 sdl2::pixels::Color::RGBA(80, 255, 120, 255),
             );
@@ -1514,8 +1732,7 @@ mod audio_sfx_tests {
 
         // After tick with MoveRight input, player should move if valid
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![platform::GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
+        player.tick(0.016, 1.0, 0.0, &mut world, &sheet);
 
         // If move was valid (not blocked), position should have changed
         // This indicates jump SFX should have been triggered
@@ -1554,8 +1771,7 @@ mod audio_sfx_tests {
 
         // Move right to checkpoint at (6, 5)
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![platform::GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
+        player.tick(0.016, 1.0, 0.0, &mut world, &sheet);
 
         // Player should be standing on checkpoint position
         assert_eq!(player.grid_x, 6, "Player should be at checkpoint x");
@@ -1593,8 +1809,7 @@ mod audio_sfx_tests {
 
         // Move right onto trap tile
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![platform::GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
+        player.tick(0.016, 1.0, 0.0, &mut world, &sheet);
 
         // Player should be eliminated after stepping on trap
         assert_eq!(player.state, PlayerState::Eliminated,
@@ -1635,8 +1850,7 @@ mod audio_sfx_tests {
 
         // Try to move right into solid tile
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![platform::GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
+        player.tick(0.016, 1.0, 0.0, &mut world, &sheet);
 
         // Position should NOT have changed (blocked by solid)
         let moved = player.grid_x != initial_x || player.grid_y != initial_y;

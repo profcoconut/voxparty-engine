@@ -22,16 +22,17 @@ impl Npc {
         }
     }
 
-    /// Trigger interaction — advance to next dialogue line.
+    /// Trigger interaction — select dialogue line based on hint_index.
+    /// hint_index selects which dialogue to show based on player state.
     /// Returns the dialogue text to display, or None if no dialogue.
-    pub fn interact(&mut self) -> Option<&str> {
+    pub fn interact(&mut self, hint_index: usize) -> Option<&str> {
         if self.dialogue.is_empty() {
             return None;
         }
-        let line = &self.dialogue[self.current_line];
-        self.current_line = (self.current_line + 1) % self.dialogue.len();
+        let idx = hint_index % self.dialogue.len();
+        self.current_line = (idx + 1) % self.dialogue.len();
         self.bubble_timer = 2.5; // bubble visible for 2.5 seconds
-        Some(line)
+        Some(&self.dialogue[idx])
     }
 
     /// Decay the bubble timer. Call each frame with delta time.
@@ -67,5 +68,30 @@ impl Npc {
             self.current_line - 1
         };
         self.dialogue.get(idx).map(|s| s.as_str())
+    }
+
+    /// Advance to the next dialogue line (for manual advance via A/Enter/Space).
+    /// Only works if dialogue is already visible (bubble_timer > 0).
+    /// Returns the dialogue text to display, or None if dialogue ended/dismissed.
+    /// When returning None, the bubble should be dismissed.
+    pub fn advance(&mut self) -> Option<&str> {
+        if self.dialogue.is_empty() {
+            return None;
+        }
+        // Only allow advance if dialogue is already being shown
+        if self.bubble_timer <= 0.0 {
+            return None;
+        }
+        // We've shown current line and are advancing to next
+        let line = &self.dialogue[self.current_line];
+        self.current_line = (self.current_line + 1) % self.dialogue.len();
+        // If we wrapped back to 0, we've shown all lines — dismiss bubble
+        if self.current_line == 0 {
+            self.bubble_timer = 0.0;
+            return None;
+        }
+        // Reset timer for next line (fallback auto-advance)
+        self.bubble_timer = 2.5;
+        Some(line)
     }
 }
