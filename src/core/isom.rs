@@ -15,8 +15,8 @@ pub fn grid_to_screen(gx: f32, gy: f32, cam_x: f32, cam_y: f32) -> (f32, f32) {
 pub fn screen_to_grid(px: f32, py: f32, cam_x: f32, cam_y: f32) -> (f32, f32) {
     let px = px + cam_x;
     let py = py + cam_y;
-    let gx = (px / TILE_W + py / TILE_H) / 2.0;
-    let gy = (px / TILE_W - py / TILE_H) / 2.0;
+    let gx = (px / (TILE_W / 2.0) + py / (TILE_H / 2.0)) / 2.0;
+    let gy = (py / (TILE_H / 2.0) - px / (TILE_W / 2.0)) / 2.0;
     (gx, gy)
 }
 
@@ -87,5 +87,58 @@ mod tests {
         assert!(depth_key(0, 0, 0) < depth_key(0, 1, 0));
         // Z=1 (elevated) should always sort after z=0
         assert!(depth_key(0, 0, 1) > depth_key(100, 100, 0));
+    }
+
+    #[test]
+    fn test_screen_to_grid_roundtrip_zero_camera() {
+        // screen_to_grid is the inverse of grid_to_screen at cam=(0,0)
+        let (px, py) = grid_to_screen(5.0, 3.0, 0.0, 0.0);
+        let (gx, gy) = screen_to_grid(px, py, 0.0, 0.0);
+        assert!((gx - 5.0).abs() < 0.001, "gx roundtrip: {}", gx);
+        assert!((gy - 3.0).abs() < 0.001, "gy roundtrip: {}", gy);
+    }
+
+    #[test]
+    fn test_screen_to_grid_roundtrip_with_camera_offset() {
+        // Roundtrip should be exact regardless of camera offset
+        let (px, py) = grid_to_screen(10.0, 7.0, 100.0, 50.0);
+        let (gx, gy) = screen_to_grid(px, py, 100.0, 50.0);
+        assert!((gx - 10.0).abs() < 0.001);
+        assert!((gy - 7.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_screen_to_grid_center_of_tile() {
+        // The center of grid tile (gx, gy) in screen space is at grid_to_screen(gx, gy, 0, 0)
+        // Feeding that back through screen_to_grid should return the original grid coord
+        let (gx_in, gy_in) = (4.0, 2.0);
+        let (px, py) = grid_to_screen(gx_in, gy_in, 0.0, 0.0);
+        let (gx_out, gy_out) = screen_to_grid(px, py, 0.0, 0.0);
+        assert!((gx_out - gx_in).abs() < 0.001);
+        assert!((gy_out - gy_in).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_depth_key_negative_coordinates() {
+        assert!(depth_key(-1, 0, 0) < depth_key(0, 0, 0));
+        assert!(depth_key(0, -1, 0) < depth_key(0, 0, 0));
+        assert!(depth_key(-1, -1, 0) < depth_key(0, 0, 0));
+    }
+
+    #[test]
+    fn test_directions_array_length() {
+        assert_eq!(DIRECTIONS.len(), 8);
+    }
+
+    #[test]
+    fn test_directions_north_is_up_left() {
+        // N = (0, -1) in grid space = moving up-left in screen
+        assert_eq!(DIRECTIONS[0], (0, -1));
+    }
+
+    #[test]
+    fn test_directions_south_is_down_right() {
+        // S = (0, 1) in grid space = moving down-right in screen
+        assert_eq!(DIRECTIONS[4], (0, 1));
     }
 }
