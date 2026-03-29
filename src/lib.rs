@@ -74,7 +74,6 @@ fn inner_run(screen_w: u32, screen_h: u32) {
     let _ = audio.load_sfx("jump", "assets/sounds/jump.wav");
     let _ = audio.load_sfx("eliminate", "assets/sounds/eliminate.wav");
     let _ = audio.load_sfx("checkpoint", "assets/sounds/checkpoint.wav");
-    let _ = &audio;
 
     // Debug overlay
     let mut debug = DebugOverlay::new();
@@ -166,6 +165,12 @@ fn inner_run(screen_w: u32, screen_h: u32) {
         world.tick_trap_cooldowns();
 
         if scene.state == SceneState::Playing {
+            // Record positions before tick for jump SFX detection
+            let p1_old_x = player1.grid_x;
+            let p1_old_y = player1.grid_y;
+            let p2_old_x = player2.grid_x;
+            let p2_old_y = player2.grid_y;
+
             // Player 1 input
             let p1_inputs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y);
             player1.tick(dt, &p1_inputs, &mut world, &chars_sheet);
@@ -173,6 +178,34 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             // Player 2 input
             let p2_inputs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y);
             player2.tick(dt, &p2_inputs, &mut world, &chars_sheet);
+
+            // --- Audio SFX wiring ---
+
+            // Jump SFX: check if players moved to a new position
+            let p1_moved = player1.grid_x != p1_old_x || player1.grid_y != p1_old_y;
+            let p2_moved = player2.grid_x != p2_old_x || player2.grid_y != p2_old_y;
+            if p1_moved && player1.state != PlayerState::Eliminated && player1.state != PlayerState::Won {
+                audio.play_sfx("jump");
+            }
+            if p2_moved && player2.state != PlayerState::Eliminated && player2.state != PlayerState::Won {
+                audio.play_sfx("jump");
+            }
+
+            // Checkpoint SFX: check if players are standing on a newly reached checkpoint
+            if world.check_checkpoint(player1.grid_x, player1.grid_y) {
+                audio.play_sfx("checkpoint");
+            }
+            if world.check_checkpoint(player2.grid_x, player2.grid_y) {
+                audio.play_sfx("checkpoint");
+            }
+
+            // Eliminate SFX: check if players were eliminated this tick
+            if player1.state == PlayerState::Eliminated && !god_mode {
+                audio.play_sfx("eliminate");
+            }
+            if player2.state == PlayerState::Eliminated && !god_mode {
+                audio.play_sfx("eliminate");
+            }
 
             // NPCs
             for npc in &mut npcs {
@@ -296,5 +329,162 @@ fn inner_run(screen_w: u32, screen_h: u32) {
 
         plat.present();
         plat.delay(16);
+    }
+}
+
+#[cfg(test)]
+mod audio_sfx_tests {
+    use super::*;
+
+    /// Test that jump SFX logic detects when a player successfully moves.
+    #[test]
+    fn test_jump_sfx_triggers_on_valid_move() {
+        let mut player = Player::new(1, 5, 5);
+        let mut world = make_test_world();
+
+        let initial_x = player.grid_x;
+        let initial_y = player.grid_y;
+
+        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![platform::GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        let moved = player.grid_x != initial_x || player.grid_y != initial_y;
+        assert!(moved, "Player should have moved with MoveRight input on open grid");
+    }
+
+    /// Test that checkpoint SFX logic fires when player reaches a checkpoint.
+    #[test]
+    fn test_checkpoint_sfx_triggers_on_reaching_checkpoint() {
+        let mut player = Player::new(1, 5, 5);
+        let mut world = make_test_world_with_checkpoint(6, 5);
+
+        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![platform::GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        assert_eq!(player.grid_x, 6, "Player should be at checkpoint x");
+        assert_eq!(player.grid_y, 5, "Player should be at checkpoint y");
+    }
+
+    /// Test that eliminate SFX logic triggers when player is eliminated.
+    #[test]
+    fn test_eliminate_sfx_triggers_on_elimination() {
+        let mut player = Player::new(1, 5, 5);
+        let mut world = make_test_world_with_trap(6, 5);
+
+        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![platform::GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        assert_eq!(player.state, PlayerState::Eliminated,
+            "Player should be Eliminated after stepping on trap");
+    }
+
+    /// Test that jump SFX does NOT trigger when move is blocked.
+    #[test]
+    fn test_jump_sfx_not_triggered_on_blocked_move() {
+        let mut player = Player::new(1, 5, 5);
+        let mut world = make_test_world_with_solid(6, 5);
+
+        let initial_x = player.grid_x;
+        let initial_y = player.grid_y;
+
+        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![platform::GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        let moved = player.grid_x != initial_x || player.grid_y != initial_y;
+        assert!(!moved, "Player should NOT have moved into solid tile");
+    }
+
+    // Helper functions to create test worlds
+
+    fn make_test_world() -> World {
+        let json = r#"{
+            "id": "ep_test",
+            "title": "Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        World::from_episode(ep)
+    }
+
+    fn make_test_world_with_checkpoint(cx: i32, cy: i32) -> World {
+        let json = format!(r#"{{
+            "id": "ep_test",
+            "title": "Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [{{"x": {}, "y": {}}}],
+            "spawn_points": [],
+            "win_condition": {{"type": "reach_goal"}},
+            "fail_condition": {{"type": "fall_off_map"}}
+        }}"#, cx, cy);
+        let ep: Episode = serde_json::from_str(&json).unwrap();
+        World::from_episode(ep)
+    }
+
+    fn make_test_world_with_trap(tx: i32, ty: i32) -> World {
+        let json = format!(r#"{{
+            "id": "ep_test",
+            "title": "Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [{{"x": {}, "y": {}, "type": "lava_trap"}}],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [],
+            "win_condition": {{"type": "reach_goal"}},
+            "fail_condition": {{"type": "fall_off_map"}}
+        }}"#, tx, ty);
+        let ep: Episode = serde_json::from_str(&json).unwrap();
+        World::from_episode(ep)
+    }
+
+    fn make_test_world_with_solid(sx: i32, sy: i32) -> World {
+        let json = format!(r#"{{
+            "id": "ep_test",
+            "title": "Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [{{"x": {}, "y": {}, "type": "stone_solid"}}],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [],
+            "win_condition": {{"type": "reach_goal"}},
+            "fail_condition": {{"type": "fall_off_map"}}
+        }}"#, sx, sy);
+        let ep: Episode = serde_json::from_str(&json).unwrap();
+        World::from_episode(ep)
     }
 }
