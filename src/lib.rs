@@ -90,8 +90,79 @@ fn reload_episode_game_state(
     Ok((episode, world, player1, player2, npcs, camera))
 }
 
+/// Initialize the global panic hook that writes to both stderr AND a crash log file.
+/// This ensures panics are never silently swallowed, especially on mobile where
+/// stderr may not be visible.
+fn init_panic_hook() {
+    // Crash log path — written to current working directory
+    const CRASH_LOG: &str = "voxparty_crash.log";
+
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // 1. Always write to stderr
+        eprintln!("[PANIC] {}", panic_info);
+
+        // 2. Also append to crash log file
+        let msg = format!(
+            "[{}] PANIC: {}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            panic_info
+        );
+        if let Err(e) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(CRASH_LOG)
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(msg.as_bytes())
+            })
+        {
+            eprintln!("[PANIC] Failed to write crash log: {}", e);
+        }
+    }));
+}
+
 fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let _ = env_logger::try_init(); // don't panic on re-init
+
+    // Install panic hook FIRST — before any other initialization
+    init_panic_hook();
+
+    // ── Episode Load Audit ───────────────────────────────────────────────────
+    // Verify ALL episodes load successfully before the game starts.
+    // This catches corrupted JSON early instead of crashing mid-game.
+    log::info!("Auditing episode files...");
+    let episode_paths = list_episodes();
+    let mut load_failures = Vec::new();
+    let mut load_success = Vec::new();
+
+    for (ep_id, ep_path) in &episode_paths {
+        match Episode::load(ep_path) {
+            Ok(ep) => {
+                log::info!("  [OK] {} ({})", ep.id, ep.difficulty);
+                load_success.push(ep_id.clone());
+            }
+            Err(e) => {
+                log::error!("  [FAIL] {}: {}", ep_id, e);
+                load_failures.push((ep_id.clone(), e));
+            }
+        }
+    }
+
+    if !load_failures.is_empty() {
+        log::error!(
+            "Episode audit: {}/{} failed to load. Successes: {:?}. Failures: {:?}",
+            load_failures.len(),
+            episode_paths.len(),
+            load_success,
+            load_failures
+        );
+    } else {
+        log::info!(
+            "Episode audit: all {}/{} episodes loaded successfully",
+            load_success.len(),
+            episode_paths.len()
+        );
+    }
 
     // Check for screenshot modes
     let args: Vec<String> = std::env::args().collect();
@@ -121,9 +192,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let chars_bytes = assets::sprite_gen::generate_characters_sprite_sheet();
     let _ = plat.load_sprite_from_bytes("characters", 192, 192, &chars_bytes);
 
-    // Load episode
+    // Load episode — use demo.json as default; audit already validated it loaded
     let mut episode = Episode::load("assets/episodes/demo.json")
-        .expect("Failed to load demo episode. Make sure the game is run from the project root directory.");
+        .map_err(|e| format!("Failed to load demo episode (audit should have caught this): {}", e))?;
     let mut world = World::from_episode(episode.clone());
 
     // Sprite sheets
@@ -271,6 +342,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     }
 
     // Game loop
+    // Frame counter — logs every 100 frames to confirm the loop is running.
+    // If this stops printing, the game has frozen.
+    let mut frame_count: u64 = 0;
+
     loop {
         // --- INPUT ---
         for event in plat.event_pump.poll_iter() {
@@ -1387,6 +1462,14 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         }
 
         plat.present();
+
+        // Frame timing heartbeat — every 100 frames, log to confirm loop is alive.
+        // If this stops, the game has frozen and needs investigation.
+        frame_count += 1;
+        if frame_count % 100 == 0 {
+            log::info!("[FRAME] #{:08}  scene={:?}", frame_count, scene.state);
+        }
+
         plat.delay(16);
     }
 }
