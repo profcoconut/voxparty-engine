@@ -11,7 +11,9 @@ use assets::loader;
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn run() {
-    inner_run(1280, 720);
+    if let Err(e) = inner_run(1280, 720) {
+        eprintln!("Game error: {}", e);
+    }
 }
 
 /// C FFI entry point — called from iOS/Android native code.
@@ -19,18 +21,29 @@ pub fn run() {
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub fn run() {
     // On mobile, use screen dimensions from the OS
-    inner_run(1280, 720); // TODO: get actual screen size
+    if let Err(e) = inner_run(1280, 720) {
+        eprintln!("Game error: {}", e);
+    }
 }
 
 /// For Android native activity glue
 #[no_mangle]
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub extern "C" fn native_main() {
-    inner_run(1280, 720);
+    if let Err(e) = inner_run(1280, 720) {
+        eprintln!("Game error: {}", e);
+    }
 }
 
-fn inner_run(screen_w: u32, screen_h: u32) {
+fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let _ = env_logger::try_init(); // don't panic on re-init
+
+    // Check for screenshot modes
+    let args: Vec<String> = std::env::args().collect();
+    let screenshot_path: Option<String> = args.windows(2)
+        .find(|w| w[0] == "--screenshot")
+        .map(|w| w[1].clone());
+    let screenshot_hint = args.contains(&"--screenshot-hint".to_string());
 
     log::info!("VoxParty starting ({}x{})", screen_w, screen_h);
 
@@ -53,9 +66,9 @@ fn inner_run(screen_w: u32, screen_h: u32) {
 
     // Players
     let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1)
-        .expect("Player 1 spawn point missing in episode");
+        .ok_or_else(|| "Player 1 spawn point missing in episode".to_string())?;
     let spawn2 = episode.spawn_points.iter().find(|s| s.player == 2)
-        .expect("Player 2 spawn point missing in episode");
+        .ok_or_else(|| "Player 2 spawn point missing in episode".to_string())?;
     let mut player1 = Player::new(1, spawn1.x, spawn1.y);
     let mut player2 = Player::new(2, spawn2.x, spawn2.y);
 
@@ -91,13 +104,97 @@ fn inner_run(screen_w: u32, screen_h: u32) {
 
     let dt = 1.0 / 60.0;
 
+    // Screenshot mode: render one frame and save
+    // Also handles --screenshot-hint which just renders+presents then exits
+    if screenshot_path.is_some() || screenshot_hint {
+        // Force Playing state so tiles render (game starts in Menu which shows nothing)
+        scene.state = SceneState::Playing;
+        scene.title_timer = 0.0; // skip title card
+
+        // Extract player animation frames (needed for rendering)
+        // Initialize idle animations if not already playing (screenshot path skips Player::tick)
+        if player1.anim.current_frame().is_none() {
+            player1.anim.play("idle_p1", &chars_sheet, true);
+        }
+        if player2.anim.current_frame().is_none() {
+            player2.anim.play("idle_p2", &chars_sheet, true);
+        }
+        let p1_frame = player1.anim.current_frame()
+            .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
+        let p2_frame = player2.anim.current_frame()
+            .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
+
+        // --- RENDER ONE FRAME ---
+        match scene.state {
+            SceneState::Menu => {
+                plat.clear(20, 20, 40, 255);
+            }
+            SceneState::TitleCard => {
+                plat.clear(10, 10, 30, 255);
+            }
+            SceneState::Playing | SceneState::Victory | SceneState::GameOver => {
+                plat.clear(30, 60, 90, 255);
+
+                // Draw tiles in depth order (iterate y then x — naturally depth-sorted)
+                for y in 0..episode.grid_height {
+                    for x in 0..episode.grid_width {
+                        let tile = world.get_tile(x, y);
+                        let (px, py) = grid_to_screen(x as f32, y as f32, camera.x, camera.y);
+                        let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 16, 64, 48);
+
+                        // Select sprite rect based on tile type (see assets/sprites/tiles.json)
+                        let src = match tile {
+                            crate::game::TileType::Passable => sdl2::rect::Rect::new(0, 0, 64, 32),   // grass_passable
+                            crate::game::TileType::Solid => sdl2::rect::Rect::new(64, 0, 64, 32),    // grass_solid
+                            crate::game::TileType::Trap => sdl2::rect::Rect::new(128, 0, 64, 32),    // lava_trap
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0, 0, 64, 32), // grass (checkpoint uses this sprite)
+                            crate::game::TileType::Goal => sdl2::rect::Rect::new(192, 0, 64, 32),    // goal_tile
+                        };
+                        let _ = plat.blit_sprite("tiles", dst, Some(src));
+                    }
+                }
+
+                // Draw NPCs
+                for npc in &npcs {
+                    let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
+                    let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
+                    let src = chars_sheet.frames.get("player1_idle")
+                        .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
+                    let _ = plat.blit_sprite("characters", dst, src);
+                }
+
+                // Draw players
+                let (p1x, p1y) = grid_to_screen(player1.grid_x as f32, player1.grid_y as f32, camera.x, camera.y);
+                let p1_dst = sdl2::rect::Rect::new(p1x as i32, p1y as i32 - 32, 64, 64);
+                let _ = plat.blit_sprite("characters", p1_dst, p1_frame);
+
+                let (p2x, p2y) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
+                let p2_dst = sdl2::rect::Rect::new(p2x as i32, p2y as i32 - 32, 64, 64);
+                let _ = plat.blit_sprite("characters", p2_dst, p2_frame);
+            }
+        }
+
+        // Present first (swaps buffers), THEN screenshot (reads from front buffer)
+        plat.present();
+        if let Some(path) = &screenshot_path {
+            if let Err(e) = plat.screenshot(path) {
+                eprintln!("Screenshot failed: {}", e);
+            }
+        }
+        if screenshot_hint {
+            // Keep window visible briefly so screencapture can grab it
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        return Ok(());
+    }
+
     // Game loop
     loop {
         // --- INPUT ---
         for event in plat.event_pump.poll_iter() {
             touch.handle_event(&event);
             if let sdl2::event::Event::Quit { .. } = event {
-                return;
+                return Ok(());
             }
 
             // Debug overlay toggle and cheat keys — only active after F1 pressed
@@ -120,6 +217,11 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                     sdl2::keyboard::Scancode::E => {
                         interact_pressed = true;
                     }
+                    // Arrow keys → player 1 virtual joystick
+                    sdl2::keyboard::Scancode::Up => { touch.player1.joystick_y = -1.0; }
+                    sdl2::keyboard::Scancode::Down => { touch.player1.joystick_y = 1.0; }
+                    sdl2::keyboard::Scancode::Left => { touch.player1.joystick_x = -1.0; }
+                    sdl2::keyboard::Scancode::Right => { touch.player1.joystick_x = 1.0; }
                     _ if cheats_enabled => {
                         match sc {
                             sdl2::keyboard::Scancode::R => {
@@ -167,6 +269,17 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                     _ => {}
                 }
             }
+
+            // KeyUp → reset arrow key virtual joystick
+            if let sdl2::event::Event::KeyUp { scancode: Some(sc), .. } = event {
+                match sc {
+                    sdl2::keyboard::Scancode::Up => { if touch.player1.joystick_y < 0.0 { touch.player1.joystick_y = 0.0; } }
+                    sdl2::keyboard::Scancode::Down => { if touch.player1.joystick_y > 0.0 { touch.player1.joystick_y = 0.0; } }
+                    sdl2::keyboard::Scancode::Left => { if touch.player1.joystick_x < 0.0 { touch.player1.joystick_x = 0.0; } }
+                    sdl2::keyboard::Scancode::Right => { if touch.player1.joystick_x > 0.0 { touch.player1.joystick_x = 0.0; } }
+                    _ => {}
+                }
+            }
         }
 
         // Execute deferred sprite reload after event loop
@@ -185,7 +298,10 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             let p1_inputs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y);
             if let Some(event) = player1.tick(dt, &p1_inputs, &mut world, &chars_sheet) {
                 match event {
-                    game::PlayerEvent::Moved => audio.play_sfx("jump"),
+                    game::PlayerEvent::Moved => {
+                        audio.play_sfx("jump");
+                        camera.shake(3.0, 0.08); // gamefeel-1: screen shake on valid move
+                    }
                     game::PlayerEvent::Checkpoint => audio.play_sfx("checkpoint"),
                     game::PlayerEvent::Eliminated => audio.play_sfx("eliminate"),
                     game::PlayerEvent::Won => {}
@@ -196,7 +312,10 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             let p2_inputs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y);
             if let Some(event) = player2.tick(dt, &p2_inputs, &mut world, &chars_sheet) {
                 match event {
-                    game::PlayerEvent::Moved => audio.play_sfx("jump"),
+                    game::PlayerEvent::Moved => {
+                        audio.play_sfx("jump");
+                        camera.shake(3.0, 0.08); // gamefeel-1: screen shake on valid move
+                    }
                     game::PlayerEvent::Checkpoint => audio.play_sfx("checkpoint"),
                     game::PlayerEvent::Eliminated => audio.play_sfx("eliminate"),
                     game::PlayerEvent::Won => {}
@@ -208,9 +327,7 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 npc.tick(dt);
             }
 
-            // Advance player animations (must be called every frame to update animation frames)
-            player1.anim.tick(dt, &chars_sheet);
-            player2.anim.tick(dt, &chars_sheet);
+            // Note: Player animations are advanced inside Player::tick() above
 
             // minpoc-3: Process Interact input — find nearest NPC and trigger dialogue
             if interact_pressed {
@@ -229,6 +346,7 @@ fn inner_run(screen_w: u32, screen_h: u32) {
 
             // Camera follows player 1
             camera.follow(player1.grid_x as f32, player1.grid_y as f32);
+            camera.tick(dt); // gamefeel-1: decay screen shake timer
 
             // Win/fail checks
             if player1.state == PlayerState::Won {
@@ -307,11 +425,55 @@ fn inner_run(screen_w: u32, screen_h: u32) {
         match scene.state {
             SceneState::Menu => {
                 plat.clear(20, 20, 40, 255);
+                // Draw "VOXPARTY" title centered
+                let title = "VOXPARTY";
+                let title_w = title.len() as i32 * 6;
+                let title_x = 1280 / 2 - title_w / 2;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    title,
+                    title_x,
+                    280,
+                    sdl2::pixels::Color::RGBA(80, 255, 120, 255),
+                );
+                // Draw "PRESS SPACE TO START" centered below
+                let subtitle = "PRESS SPACE TO START";
+                let sub_w = subtitle.len() as i32 * 6;
+                let sub_x = 1280 / 2 - sub_w / 2;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    subtitle,
+                    sub_x,
+                    340,
+                    sdl2::pixels::Color::RGBA(200, 200, 200, 255),
+                );
             }
             SceneState::TitleCard => {
                 plat.clear(10, 10, 30, 255);
+                // Draw episode title centered
+                let title = episode.title.as_str();
+                let title_w = title.len() as i32 * 6;
+                let title_x = 1280 / 2 - title_w / 2;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    title,
+                    title_x,
+                    300,
+                    sdl2::pixels::Color::RGBA(100, 200, 255, 255),
+                );
+                // Draw "GET READY..." subtitle
+                let sub = "GET READY...";
+                let sub_w = sub.len() as i32 * 6;
+                let sub_x = 1280 / 2 - sub_w / 2;
+                DebugOverlay::draw_text(
+                    &mut plat.canvas,
+                    sub,
+                    sub_x,
+                    360,
+                    sdl2::pixels::Color::RGBA(180, 180, 180, 255),
+                );
             }
-            SceneState::Playing | SceneState::GameOver => {
+            SceneState::Playing | SceneState::Victory | SceneState::GameOver => {
                 plat.clear(30, 60, 90, 255);
 
                 // Draw tiles in depth order (iterate y then x — naturally depth-sorted)
@@ -353,7 +515,49 @@ fn inner_run(screen_w: u32, screen_h: u32) {
 
                 // Draw game over overlay
                 if scene.state == SceneState::GameOver {
-                    plat.clear(0, 0, 0, 180);
+                    // Semi-transparent dark overlay
+                    plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 150));
+                    let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(0, 280, 1280, 160));
+
+                    // Game Over text
+                    let go_text = "GAME OVER";
+                    let go_w = go_text.len() as i32 * 6;
+                    DebugOverlay::draw_text(
+                        &mut plat.canvas,
+                        go_text,
+                        1280 / 2 - go_w / 2,
+                        310,
+                        sdl2::pixels::Color::RGBA(255, 80, 80, 255),
+                    );
+
+                    // Winner info (winner is 1 or 2; anything else including None = draw)
+                    let result_text = if scene.winner == Some(1) {
+                        "PLAYER 1 WINS"
+                    } else if scene.winner == Some(2) {
+                        "PLAYER 2 WINS"
+                    } else {
+                        "DRAW"
+                    };
+                    let result_w = result_text.len() as i32 * 6;
+                    DebugOverlay::draw_text(
+                        &mut plat.canvas,
+                        result_text,
+                        1280 / 2 - result_w / 2,
+                        370,
+                        sdl2::pixels::Color::RGBA(200, 200, 200, 255),
+                    );
+
+                    // Countdown: RETURNING TO MENU IN X...
+                    let countdown = (scene.gameover_timer.ceil() as u32).max(0);
+                    let countdown_text = format!("RETURNING TO MENU IN {}...", countdown);
+                    let countdown_w = countdown_text.len() as i32 * 6;
+                    DebugOverlay::draw_text(
+                        &mut plat.canvas,
+                        &countdown_text,
+                        1280 / 2 - countdown_w / 2,
+                        410,
+                        sdl2::pixels::Color::RGBA(150, 150, 150, 255),
+                    );
                 }
 
                 // Draw NPC dialogue bubbles
@@ -366,6 +570,14 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                             let bubble_rect = sdl2::rect::Rect::new(bx, by - 24, 200, 32);
                             plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 255, 200, 230));
                             let _ = plat.canvas.fill_rect(bubble_rect);
+                            // Render the dialogue text inside the bubble
+                            DebugOverlay::draw_text(
+                                &mut plat.canvas,
+                                &line,
+                                bx + 4,
+                                by - 20,
+                                sdl2::pixels::Color::RGBA(0, 0, 0, 255),
+                            );
                         }
                     }
                 }
