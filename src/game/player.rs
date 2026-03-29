@@ -130,3 +130,135 @@ impl Player {
         self.state = PlayerState::Idle;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::sprites::SpriteSheet;
+    use crate::game::episode::Episode;
+    use std::collections::HashMap;
+
+    fn make_player() -> Player {
+        Player::new(1, 5, 5)
+    }
+
+    fn make_world() -> World {
+        let json = r#"{
+            "id": "ep_test",
+            "title": "Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        World::from_episode(ep)
+    }
+
+    fn make_sprite_sheet() -> SpriteSheet {
+        SpriteSheet {
+            name: "test".to_string(),
+            frames: HashMap::new(),
+            animations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_new_sets_position_and_checkpoint() {
+        let p = make_player();
+        assert_eq!(p.grid_x, 5);
+        assert_eq!(p.grid_y, 5);
+        assert_eq!(p.checkpoint_x, 5);
+        assert_eq!(p.checkpoint_y, 5);
+        assert_eq!(p.state, PlayerState::Idle);
+        assert_eq!(p.facing_dir, 0);
+        assert_eq!(p.id, 1);
+    }
+
+    #[test]
+    fn test_respawn_returns_to_checkpoint() {
+        let mut p = Player::new(1, 5, 5);
+        p.grid_x = 8;
+        p.grid_y = 8;
+        p.state = PlayerState::Eliminated;
+        p.respawn();
+        assert_eq!(p.grid_x, 5);
+        assert_eq!(p.grid_y, 5);
+        assert_eq!(p.state, PlayerState::Idle);
+    }
+
+    #[test]
+    fn test_tick_eliminated_does_nothing() {
+        let mut p = Player::new(1, 5, 5);
+        p.state = PlayerState::Eliminated;
+        let mut world = make_world();
+        let sheet = make_sprite_sheet();
+        p.tick(0.016, &[], &mut world, &sheet);
+        assert_eq!(p.state, PlayerState::Eliminated);
+    }
+
+    #[test]
+    fn test_tick_won_does_nothing() {
+        let mut p = Player::new(1, 5, 5);
+        p.state = PlayerState::Won;
+        let mut world = make_world();
+        let sheet = make_sprite_sheet();
+        p.tick(0.016, &[], &mut world, &sheet);
+        assert_eq!(p.state, PlayerState::Won);
+    }
+
+    #[test]
+    fn test_tick_cooldown_prevents_movement() {
+        let mut p = Player::new(1, 5, 5);
+        p.move_cooldown = 0.1;
+        let mut world = make_world();
+        let sheet = make_sprite_sheet();
+        p.tick(0.016, &[GameInput::MoveRight], &mut world, &sheet);
+        assert_eq!(p.grid_x, 5, "player should not move while in cooldown");
+    }
+
+    #[test]
+    fn test_tick_no_inputs_idle_stays_idle() {
+        let mut p = Player::new(1, 5, 5);
+        p.state = PlayerState::Idle;
+        let mut world = make_world();
+        let sheet = make_sprite_sheet();
+        p.tick(0.016, &[], &mut world, &sheet);
+        assert_eq!(p.state, PlayerState::Idle);
+    }
+
+    #[test]
+    fn test_player_state_enum_variants() {
+        assert_eq!(PlayerState::Idle, PlayerState::Idle);
+        assert_eq!(PlayerState::Moving, PlayerState::Moving);
+        assert_eq!(PlayerState::Eliminated, PlayerState::Eliminated);
+        assert_eq!(PlayerState::Won, PlayerState::Won);
+    }
+
+    #[test]
+    fn test_new_player_has_zero_cooldown() {
+        let p = make_player();
+        assert_eq!(p.move_cooldown, 0.0);
+    }
+
+    #[test]
+    fn test_tick_respects_cooldown_and_countdown() {
+        let mut p = Player::new(1, 5, 5);
+        p.move_cooldown = 0.1;
+        let mut world = make_world();
+        let sheet = make_sprite_sheet();
+        p.tick(0.016, &[], &mut world, &sheet);
+        // After one tick at dt=0.016, cooldown should be ~0.084
+        assert!(p.move_cooldown < 0.1);
+        assert!(p.move_cooldown > 0.0);
+    }
+}
