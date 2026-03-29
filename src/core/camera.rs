@@ -60,15 +60,15 @@ impl Camera {
         let dy = target_screen_y - screen_cy;
 
         if dx < -margin_x {
-            self.target_x = target_screen_x - screen_cx + margin_x;
-        } else if dx > margin_x {
             self.target_x = target_screen_x - screen_cx - margin_x;
+        } else if dx > margin_x {
+            self.target_x = target_screen_x - screen_cx + margin_x;
         }
 
         if dy < -margin_y {
-            self.target_y = target_screen_y - screen_cy + margin_y;
-        } else if dy > margin_y {
             self.target_y = target_screen_y - screen_cy - margin_y;
+        } else if dy > margin_y {
+            self.target_y = target_screen_y - screen_cy + margin_y;
         }
 
         // Clamp to world bounds

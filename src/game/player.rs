@@ -11,6 +11,15 @@ pub enum PlayerState {
     Won,
 }
 
+/// Events that can occur during a player tick, returned for audio/UI wiring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerEvent {
+    Moved,
+    Eliminated,
+    Checkpoint,
+    Won,
+}
+
 pub struct Player {
     pub id: u8,
     pub grid_x: i32,
@@ -45,14 +54,15 @@ impl Player {
     /// `inputs` — parsed directional inputs from virtual gamepad.
     /// `world` — mutable world (for traps, checkpoints).
     /// `sheet` — sprite sheet for animation.
-    pub fn tick(&mut self, dt: f32, inputs: &[GameInput], world: &mut World, sheet: &SpriteSheet) {
+    /// Returns an event if something significant happened (for audio/UI wiring).
+    pub fn tick(&mut self, dt: f32, inputs: &[GameInput], world: &mut World, sheet: &SpriteSheet) -> Option<PlayerEvent> {
         // Cooldown countdown
         if self.move_cooldown > 0.0 {
             self.move_cooldown -= dt;
         }
 
         match self.state {
-            PlayerState::Eliminated | PlayerState::Won => return,
+            PlayerState::Eliminated | PlayerState::Won => return None,
             _ => {}
         }
 
@@ -61,7 +71,7 @@ impl Player {
 
         // Don't move if still in cooldown
         if self.move_cooldown > 0.0 {
-            return;
+            return None;
         }
 
         // Determine direction from inputs
@@ -86,11 +96,12 @@ impl Player {
                 // Check traps (after moving — player stands on trap tile)
                 if world.check_trap(new_x, new_y) {
                     self.state = PlayerState::Eliminated;
-                    return;
+                    return Some(PlayerEvent::Eliminated);
                 }
 
                 // Check checkpoint
-                if world.check_checkpoint(new_x, new_y) {
+                let got_checkpoint = world.check_checkpoint(new_x, new_y);
+                if got_checkpoint {
                     self.checkpoint_x = new_x;
                     self.checkpoint_y = new_y;
                 }
@@ -98,13 +109,14 @@ impl Player {
                 // Check win condition
                 if world.check_goal(new_x, new_y) {
                     self.state = PlayerState::Won;
-                    return;
+                    return Some(PlayerEvent::Won);
                 }
 
                 // Still alive and moved — update animation
                 let anim_name = if self.id == 1 { "run_p1" } else { "run_p2" };
                 self.anim.play(anim_name, sheet, false);
                 self.state = PlayerState::Moving;
+                return Some(if got_checkpoint { PlayerEvent::Checkpoint } else { PlayerEvent::Moved });
             } else {
                 // Blocked — go idle
                 if self.state == PlayerState::Moving {
@@ -121,6 +133,7 @@ impl Player {
                 self.anim.play(idle_name, sheet, false);
             }
         }
+        None
     }
 
     /// Respawn at last checkpoint (call after elimination).

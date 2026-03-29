@@ -90,7 +90,7 @@ mod tests {
         let ep = Episode::load("assets/episodes/demo.json");
         // Demo episode now has tiles (walls, trap, checkpoint, goal)
         assert!(!ep.tiles.is_empty(), "demo episode should have tiles");
-        assert!(ep.npcs.is_empty());
+        // Demo episode may have NPCs for dialogue/interaction
         // Demo episode now has a checkpoint
         assert!(!ep.checkpoints.is_empty(), "demo episode should have checkpoints");
     }

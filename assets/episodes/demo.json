@@ -3,6 +3,7 @@
   "title": "Demo Island",
   "mode": "last_standing",
   "theme": "grassland",
+  "music": null,
   "duration_target_seconds": 120,
   "tile_width": 64,
   "tile_height": 32,
@@ -73,7 +74,18 @@
     {"x": 7, "y": 7, "type": "save_checkpoint"},
     {"x": 14, "y": 14, "type": "exit_goal"}
   ],
-  "npcs": [],
+  "npcs": [
+    {
+      "x": 2,
+      "y": 2,
+      "name": "Greeter",
+      "dialogue": [
+        "Welcome to VoxParty!",
+        "Use arrow keys to move.",
+        "Find the exit goal to win!"
+      ]
+    }
+  ],
   "checkpoints": [
     {"x": 7, "y": 7}
   ],

@@ -4,7 +4,7 @@ pub mod game;
 pub mod assets;
 
 use platform::{Platform, TouchHandler, AudioManager};
-use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, depth_key, debug::DebugOverlay};
+use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, debug::DebugOverlay};
 use game::{Episode, Player, PlayerState, Npc, World};
 use game::input::gamepad_to_inputs;
 use assets::loader;
@@ -74,6 +74,8 @@ fn inner_run(screen_w: u32, screen_h: u32) {
     let _ = audio.load_sfx("jump", "assets/sounds/jump.wav");
     let _ = audio.load_sfx("eliminate", "assets/sounds/eliminate.wav");
     let _ = audio.load_sfx("checkpoint", "assets/sounds/checkpoint.wav");
+    // minpoc-4: Background music — play synthesized stub (no audio files needed)
+    audio.play_music_stub();
 
     // Debug overlay
     let mut debug = DebugOverlay::new();
@@ -82,6 +84,8 @@ fn inner_run(screen_w: u32, screen_h: u32) {
     let mut cheats_enabled = false;
     // Deferred sprite reload — set by R key, executed after event loop
     let mut pending_sprite_reload = false;
+    // Interact input — set by E key, processed in game loop
+    let mut interact_pressed = false;
 
     let dt = 1.0 / 60.0;
 
@@ -109,6 +113,10 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                         if scene.state == SceneState::Menu {
                             scene.start_game();
                         }
+                    }
+                    // minpoc-3: Wire GameInput::Interact for NPC dialogue
+                    sdl2::keyboard::Scancode::E => {
+                        interact_pressed = true;
                     }
                     _ if cheats_enabled => {
                         match sc {
@@ -173,15 +181,44 @@ fn inner_run(screen_w: u32, screen_h: u32) {
         if scene.state == SceneState::Playing {
             // Player 1 input
             let p1_inputs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y);
-            player1.tick(dt, &p1_inputs, &mut world, &chars_sheet);
+            if let Some(event) = player1.tick(dt, &p1_inputs, &mut world, &chars_sheet) {
+                match event {
+                    game::PlayerEvent::Moved => audio.play_sfx("jump"),
+                    game::PlayerEvent::Checkpoint => audio.play_sfx("checkpoint"),
+                    game::PlayerEvent::Eliminated => audio.play_sfx("eliminate"),
+                    game::PlayerEvent::Won => {}
+                }
+            }
 
             // Player 2 input
             let p2_inputs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y);
-            player2.tick(dt, &p2_inputs, &mut world, &chars_sheet);
+            if let Some(event) = player2.tick(dt, &p2_inputs, &mut world, &chars_sheet) {
+                match event {
+                    game::PlayerEvent::Moved => audio.play_sfx("jump"),
+                    game::PlayerEvent::Checkpoint => audio.play_sfx("checkpoint"),
+                    game::PlayerEvent::Eliminated => audio.play_sfx("eliminate"),
+                    game::PlayerEvent::Won => {}
+                }
+            }
 
             // NPCs
             for npc in &mut npcs {
                 npc.tick(dt);
+            }
+
+            // minpoc-3: Process Interact input — find nearest NPC and trigger dialogue
+            if interact_pressed {
+                interact_pressed = false;
+                // Find NPC adjacent to player1 (same tile)
+                for npc in &mut npcs {
+                    if npc.grid_x == player1.grid_x && npc.grid_y == player1.grid_y {
+                        let name = npc.name.clone();
+                        if let Some(line) = npc.interact() {
+                            eprintln!("[NPC] {}: {}", name, line);
+                        }
+                        break;
+                    }
+                }
             }
 
             // Camera follows player 1
@@ -265,20 +302,22 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             SceneState::Playing | SceneState::GameOver => {
                 plat.clear(30, 60, 90, 255);
 
-                // Draw tiles in depth order
-                for depth in 0..=(episode.grid_width + episode.grid_height) * 2 {
-                    for y in 0..episode.grid_height {
-                        for x in 0..episode.grid_width {
-                            if depth_key(x, y, 0) == depth {
-                                let tile = world.get_tile(x, y);
-                                if tile != crate::game::TileType::Passable {
-                                    let (px, py) = grid_to_screen(x as f32, y as f32, camera.x, camera.y);
-                                    let src = sdl2::rect::Rect::new(0, 0, 64, 32);
-                                    let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 16, 64, 48);
-                                    let _ = plat.blit_sprite("tiles", dst, Some(src));
-                                }
-                            }
-                        }
+                // Draw tiles in depth order (iterate y then x — naturally depth-sorted)
+                for y in 0..episode.grid_height {
+                    for x in 0..episode.grid_width {
+                        let tile = world.get_tile(x, y);
+                        let (px, py) = grid_to_screen(x as f32, y as f32, camera.x, camera.y);
+                        let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 16, 64, 48);
+
+                        // Select sprite rect based on tile type (see assets/sprites/tiles.json)
+                        let src = match tile {
+                            crate::game::TileType::Passable  => sdl2::rect::Rect::new(0,   0, 64, 32), // grass_passable
+                            crate::game::TileType::Solid      => sdl2::rect::Rect::new(64,  0, 64, 32), // grass_solid
+                            crate::game::TileType::Trap      => sdl2::rect::Rect::new(128, 0, 64, 32), // lava_trap
+                            crate::game::TileType::Checkpoint => sdl2::rect::Rect::new(0,   0, 64, 32), // grass (checkpoint uses this sprite)
+                            crate::game::TileType::Goal      => sdl2::rect::Rect::new(192, 0, 64, 32), // goal_tile
+                        };
+                        let _ = plat.blit_sprite("tiles", dst, Some(src));
                     }
                 }
 
@@ -299,6 +338,20 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 // Draw game over overlay
                 if scene.state == SceneState::GameOver {
                     plat.clear(0, 0, 0, 180);
+                }
+
+                // Draw NPC dialogue bubbles
+                for npc in &npcs {
+                    if npc.bubble_visible() {
+                        let (bx, by) = npc.bubble_screen_xy(camera.x, camera.y);
+                        if let Some(line) = npc.current_line_text() {
+                            eprintln!("[DIALOGUE] {}: {}", npc.name, line);
+                            // Draw a simple debug rectangle as bubble placeholder
+                            let bubble_rect = sdl2::rect::Rect::new(bx, by - 24, 200, 32);
+                            plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 255, 200, 230));
+                            let _ = plat.canvas.fill_rect(bubble_rect);
+                        }
+                    }
                 }
             }
         }

@@ -6,5 +6,5 @@ pub mod input;
 
 pub use episode::Episode;
 pub use world::{World, TileType};
-pub use player::{Player, PlayerState};
+pub use player::{Player, PlayerState, PlayerEvent};
 pub use npc::Npc;

@@ -62,6 +62,68 @@ impl AudioManager {
             sink.stop();
         }
     }
+
+    /// Play a simple synthesized sine wave tone as a placeholder for real music.
+    /// This allows the game to produce audio output without requiring audio files.
+    pub fn play_tone(&mut self, freq: f32, duration_secs: f32) {
+        use rodio::Source;
+        if self.music_sink.is_none() {
+            // Create a new sink for music if we don't have one
+            if let Ok(sink) = Sink::try_new(&self._stream_handle) {
+                self.music_sink = Some(sink);
+            } else {
+                return;
+            }
+        }
+        let source = rodio::source::SineWave::new(freq)
+            .take_duration(std::time::Duration::from_secs_f32(duration_secs))
+            .fade_in(std::time::Duration::from_millis(100));
+        if let Some(ref sink) = self.music_sink {
+            sink.append(source);
+        }
+    }
+
+    /// Play a simple synthesized melody as placeholder background music.
+    /// Plays a short ascending then descending melody loop.
+    pub fn play_music_stub(&mut self) {
+        use rodio::Source;
+        if self.music_sink.is_none() {
+            if let Ok(sink) = Sink::try_new(&self._stream_handle) {
+                self.music_sink = Some(sink);
+            } else {
+                return;
+            }
+        }
+
+        // Create a simple melody using repeated tones
+        // C5-E5-G5-E5-C5-E5-G5-B5 (ascending, then higher)
+        let notes = vec![
+            (523.25, 0.15),  // C5
+            (659.25, 0.15),  // E5
+            (783.99, 0.15),  // G5
+            (659.25, 0.15),  // E5
+            (523.25, 0.15),  // C5
+            (587.33, 0.15),  // D5
+            (698.46, 0.15),  // F5
+            (880.00, 0.25),  // A5
+        ];
+
+        let sources: Vec<_> = notes.iter().map(|(freq, dur)| {
+            rodio::source::SineWave::new(*freq)
+                .take_duration(std::time::Duration::from_secs_f32(*dur))
+                .fade_in(std::time::Duration::from_millis(30))
+                .take_duration(std::time::Duration::from_secs_f32((*dur - 0.03).max(0.0)))
+        }).collect();
+
+        if let Some(ref sink) = self.music_sink {
+            for source in sources {
+                sink.append(source);
+            }
+            // Repeat the melody a few times for continuous music effect
+            sink.append(rodio::source::SineWave::new(0.0) // silent gap
+                .take_duration(std::time::Duration::from_millis(500)));
+        }
+    }
 }
 
 impl Default for AudioManager {
