@@ -1,0 +1,20 @@
+{
+  "id": "ep_demo",
+  "title": "Demo Island",
+  "mode": "last_standing",
+  "theme": "grassland",
+  "duration_target_seconds": 120,
+  "tile_width": 64,
+  "tile_height": 32,
+  "grid_width": 16,
+  "grid_height": 16,
+  "tiles": [],
+  "npcs": [],
+  "checkpoints": [],
+  "spawn_points": [
+    { "x": 1, "y": 1, "player": 1 },
+    { "x": 1, "y": 3, "player": 2 }
+  ],
+  "win_condition": { "type": "reach_goal" },
+  "fail_condition": { "type": "fall_off_map" }
+}
