@@ -18,6 +18,7 @@ pub struct Platform {
     pub texture_creator: sdl2::render::TextureCreator<WindowContext>,
     pub sprites: HashMap<String, RawSprite>,
     pub target_fps: u32,
+    sdl: sdl2::Sdl,
 }
 
 impl Platform {
@@ -50,6 +51,7 @@ impl Platform {
             texture_creator,
             sprites: HashMap::new(),
             target_fps: 60,
+            sdl,
         }
     }
 
@@ -66,6 +68,39 @@ impl Platform {
         std::thread::sleep(std::time::Duration::from_millis(millis.into()));
     }
 
+    /// Returns the haptic subsystem, if available.
+    pub fn haptic(&self) -> Option<sdl2::HapticSubsystem> {
+        self.sdl.haptic().ok()
+    }
+
+    /// Returns the game controller subsystem for gamepad support.
+    pub fn game_controller(&self) -> Option<sdl2::controller::GameController> {
+        self.sdl
+            .game_controller()
+            .ok()
+            .and_then(|gcs| gcs.open(0).ok())
+    }
+
+    /// Save a screenshot of the current frame to the given path as PNG.
+    /// Called before `present()` to capture the back buffer contents.
+    pub fn screenshot(&mut self, path: &str) -> Result<(), String> {
+        use image::{ImageBuffer, Rgba};
+
+        let w = 1280u32;
+        let h = 720u32;
+
+        // read_pixels reads from the canvas's internal buffer before present
+        let pixels = self
+            .canvas
+            .read_pixels(None, sdl2::pixels::PixelFormatEnum::RGBA32)
+            .map_err(|e| e.to_string())?;
+
+        let img: ImageBuffer<Rgba<u8>, _> =
+            ImageBuffer::from_raw(w, h, pixels).ok_or_else(|| "Failed to create image buffer".to_string())?;
+
+        img.save(path).map_err(|e| e.to_string())
+    }
+
     pub fn load_sprite(&mut self, name: &str, path: &str) -> Result<(), String> {
         let img = image::open(path).map_err(|e| e.to_string())?;
         let rgba = img.to_rgba8();
@@ -77,6 +112,24 @@ impl Platform {
                 data,
                 width: w,
                 height: h,
+                format: PixelFormatEnum::RGBA32,
+            },
+        );
+        Ok(())
+    }
+
+    /// Load a sprite from raw RGBA bytes (generated in memory).
+    pub fn load_sprite_from_bytes(&mut self, name: &str, width: u32, height: u32, rgba_data: &[u8]) -> Result<(), String> {
+        if rgba_data.len() != (width * height * 4) as usize {
+            return Err(format!("Invalid sprite data size: expected {}, got {}", width * height * 4, rgba_data.len()));
+        }
+        let data: Box<[u8]> = rgba_data.to_vec().into_boxed_slice();
+        self.sprites.insert(
+            name.to_string(),
+            RawSprite {
+                data,
+                width,
+                height,
                 format: PixelFormatEnum::RGBA32,
             },
         );

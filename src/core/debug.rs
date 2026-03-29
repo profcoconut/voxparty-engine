@@ -37,6 +37,7 @@ pub struct DebugState<'a> {
 
 pub struct DebugOverlay {
     visible: bool,
+    fps_visible: bool,
     fps: f32,
     frame_time_ms: f32,
     mouse_grid_x: i32,
@@ -48,6 +49,7 @@ impl DebugOverlay {
     pub fn new() -> Self {
         Self {
             visible: false,
+            fps_visible: false,
             fps: 0.0,
             frame_time_ms: 0.0,
             mouse_grid_x: 0,
@@ -62,6 +64,14 @@ impl DebugOverlay {
 
     pub fn toggle(&mut self) {
         self.visible = !self.visible;
+    }
+
+    pub fn toggle_fps(&mut self) {
+        self.fps_visible = !self.fps_visible;
+    }
+
+    pub fn is_fps_visible(&self) -> bool {
+        self.fps_visible
     }
 
     /// Update FPS using exponential moving average. Call each frame.
@@ -87,6 +97,24 @@ impl DebugOverlay {
 
     /// Render the overlay if visible. Call after canvas.present().
     pub fn render(&self, canvas: &mut Canvas<Window>, state: &DebugState) {
+        // Always render FPS counter if fps_visible is true
+        if self.fps_visible && !self.visible {
+            let (screen_w, _screen_h) = canvas.output_size().unwrap_or((1280, 720));
+            // Small FPS badge in top-right corner
+            canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 160));
+            let _ = canvas.fill_rect(Rect::new(screen_w as i32 - 110, 8, 102, 24));
+            canvas.set_draw_color(sdl2::pixels::Color::RGBA(100, 200, 100, 255));
+            let _ = canvas.draw_rect(Rect::new(screen_w as i32 - 110, 8, 102, 24));
+            let fps_text = format!("FPS: {:4.1}", self.fps);
+            Self::draw_text(
+                canvas,
+                &fps_text,
+                screen_w as i32 - 106,
+                14,
+                sdl2::pixels::Color::RGBA(180, 255, 180, 255),
+            );
+        }
+
         if !self.visible {
             return;
         }
@@ -107,17 +135,17 @@ impl DebugOverlay {
         let x = PAD;
         let mut y = PAD;
 
-        self.draw_text(canvas, &Self::fps_line(self), x, y, text_color);
+        Self::draw_text(canvas, &Self::fps_line(self), x, y, text_color);
         y += CHAR_H + 2;
-        self.draw_text(canvas, &Self::scene_line(state.scene), x, y, text_color);
+        Self::draw_text(canvas, &Self::scene_line(state.scene), x, y, text_color);
         y += CHAR_H + 2;
-        self.draw_text(canvas, &Self::player_line(state.player1, 1), x, y, text_color);
+        Self::draw_text(canvas, &Self::player_line(state.player1, 1), x, y, text_color);
         y += CHAR_H + 2;
-        self.draw_text(canvas, &Self::player_line(state.player2, 2), x, y, text_color);
+        Self::draw_text(canvas, &Self::player_line(state.player2, 2), x, y, text_color);
         y += CHAR_H + 2;
-        self.draw_text(canvas, &Self::camera_line(state.camera), x, y, text_color);
+        Self::draw_text(canvas, &Self::camera_line(state.camera), x, y, text_color);
         y += CHAR_H + 2;
-        self.draw_text(
+        Self::draw_text(
             canvas,
             &Self::hover_line(self.mouse_grid_x, self.mouse_grid_y, self.mouse_depth),
             x,
@@ -125,7 +153,7 @@ impl DebugOverlay {
             text_color,
         );
         y += CHAR_H + 2;
-        self.draw_text(
+        Self::draw_text(
             canvas,
             &Self::input_line(state),
             x,
@@ -137,7 +165,7 @@ impl DebugOverlay {
         if state.god_mode {
             canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 200, 0, 255));
             let _ = canvas.fill_rect(Rect::new(screen_w as i32 - 80, 8, 72, 20));
-            self.draw_text(canvas, "GOD MODE", screen_w as i32 - 76, 12, sdl2::pixels::Color::RGBA(0, 0, 0, 255));
+            Self::draw_text(canvas, "GOD MODE", screen_w as i32 - 76, 12, sdl2::pixels::Color::RGBA(0, 0, 0, 255));
         }
     }
 
@@ -148,9 +176,12 @@ impl DebugOverlay {
     fn scene_line(scene: &Scene) -> String {
         let name = match scene.state {
             SceneState::Menu => "Menu",
+            SceneState::EpisodeSelect => "EpisodeSelect",
             SceneState::TitleCard => "TitleCard",
             SceneState::Playing => "Playing",
+            SceneState::Victory => "Victory",
             SceneState::GameOver => "GameOver",
+            SceneState::Paused => "Paused",
         };
         format!("SCENE: {}", name)
     }
@@ -184,19 +215,19 @@ impl DebugOverlay {
     // ── 5x7 Bitmap Font ────────────────────────────────────────────────────────
 
     /// Draw null-terminated ASCII string at pixel position (x, y).
-    fn draw_text(&self, canvas: &mut Canvas<Window>, s: &str, x: i32, y: i32, color: sdl2::pixels::Color) {
+    pub fn draw_text(canvas: &mut Canvas<Window>, s: &str, x: i32, y: i32, color: sdl2::pixels::Color) {
         let mut px = x;
         for ch in s.chars() {
             if px + CHAR_W > 1280 {
                 break;
             }
-            self.draw_char(canvas, ch, px, y, color);
+            Self::draw_char(canvas, ch, px, y, color);
             px += CHAR_W + 1;
         }
     }
 
-    fn draw_char(&self, canvas: &mut Canvas<Window>, ch: char, x: i32, y: i32, color: sdl2::pixels::Color) {
-        let bitmap = self.bitmap_for(ch);
+    pub fn draw_char(canvas: &mut Canvas<Window>, ch: char, x: i32, y: i32, color: sdl2::pixels::Color) {
+        let bitmap = font_5x7(ch);
         canvas.set_draw_color(color);
         for row in 0..7 {
             let bits = bitmap[row];
@@ -208,8 +239,9 @@ impl DebugOverlay {
         }
     }
 
-    /// Return 7-byte bitmap for a character, or blank for unsupported.
-    fn bitmap_for(&self, ch: char) -> [u8; 7] {
+    /// Return 7-byte bitmap for a character (used by tests).
+    #[allow(dead_code)]
+    fn bitmap_for(ch: char) -> [u8; 7] {
         font_5x7(ch)
     }
 }
@@ -343,15 +375,13 @@ mod tests {
 
     #[test]
     fn test_bitmap_for_space() {
-        let overlay = DebugOverlay::new();
-        assert_eq!(overlay.bitmap_for(' '), [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(DebugOverlay::bitmap_for(' '), [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     }
 
     #[test]
     fn test_bitmap_for_digit() {
-        let overlay = DebugOverlay::new();
         // '1' should have middle column set
-        let b = overlay.bitmap_for('1');
+        let b = DebugOverlay::bitmap_for('1');
         assert_eq!(b[0], 0x04); // top row: ..X..
         assert_eq!(b[3], 0x04); // middle row: ..X..
     }

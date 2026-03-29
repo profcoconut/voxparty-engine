@@ -127,6 +127,24 @@ impl AnimPlayer {
         self.frame_timer = 0.0;
     }
 
+    /// Explicitly advance the animation by one frame.
+    /// Called after play() to step to the next frame immediately.
+    pub fn advance(&mut self, sheet: &SpriteSheet) {
+        if self.current_anim.is_none() {
+            return;
+        }
+        let anim_name = self.current_anim.as_ref().unwrap();
+        let anim = match sheet.animations.get(anim_name) {
+            Some(a) => a,
+            None => return,
+        };
+        if anim.frames.is_empty() {
+            return;
+        }
+        self.frame_index = (self.frame_index + 1) % anim.frames.len().max(1);
+        self.current_frame = Some(anim.frames[self.frame_index].clone());
+    }
+
     /// Advance animation by `dt` seconds. Returns the current frame, if any.
     /// Also stores the frame in `self.current_frame` for retrieval via `current_frame()`.
     pub fn tick<'a>(&mut self, dt: f32, sheet: &'a SpriteSheet) -> Option<&'a SpriteFrame> {

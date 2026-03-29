@@ -1,8 +1,9 @@
 {
   "id": "ep_demo",
   "title": "Demo Island",
-  "mode": "last_standing",
+  "mode": "solo",
   "theme": "grassland",
+  "difficulty": "easy",
   "music": null,
   "duration_target_seconds": 120,
   "tile_width": 64,
@@ -26,34 +27,49 @@
     {"x": 13, "y": 0, "type": "stone_solid"},
     {"x": 14, "y": 0, "type": "stone_solid"},
     {"x": 15, "y": 0, "type": "stone_solid"},
+
     {"x": 0, "y": 1, "type": "stone_solid"},
     {"x": 15, "y": 1, "type": "stone_solid"},
+
     {"x": 0, "y": 2, "type": "stone_solid"},
     {"x": 15, "y": 2, "type": "stone_solid"},
+
     {"x": 0, "y": 3, "type": "stone_solid"},
     {"x": 15, "y": 3, "type": "stone_solid"},
+
     {"x": 0, "y": 4, "type": "stone_solid"},
     {"x": 15, "y": 4, "type": "stone_solid"},
+
     {"x": 0, "y": 5, "type": "stone_solid"},
     {"x": 15, "y": 5, "type": "stone_solid"},
+
     {"x": 0, "y": 6, "type": "stone_solid"},
     {"x": 15, "y": 6, "type": "stone_solid"},
+
     {"x": 0, "y": 7, "type": "stone_solid"},
     {"x": 15, "y": 7, "type": "stone_solid"},
+
     {"x": 0, "y": 8, "type": "stone_solid"},
     {"x": 15, "y": 8, "type": "stone_solid"},
+
     {"x": 0, "y": 9, "type": "stone_solid"},
     {"x": 15, "y": 9, "type": "stone_solid"},
+
     {"x": 0, "y": 10, "type": "stone_solid"},
     {"x": 15, "y": 10, "type": "stone_solid"},
+
     {"x": 0, "y": 11, "type": "stone_solid"},
     {"x": 15, "y": 11, "type": "stone_solid"},
+
     {"x": 0, "y": 12, "type": "stone_solid"},
     {"x": 15, "y": 12, "type": "stone_solid"},
+
     {"x": 0, "y": 13, "type": "stone_solid"},
     {"x": 15, "y": 13, "type": "stone_solid"},
+
     {"x": 0, "y": 14, "type": "stone_solid"},
     {"x": 15, "y": 14, "type": "stone_solid"},
+
     {"x": 0, "y": 15, "type": "stone_solid"},
     {"x": 1, "y": 15, "type": "stone_solid"},
     {"x": 2, "y": 15, "type": "stone_solid"},
@@ -70,24 +86,57 @@
     {"x": 13, "y": 15, "type": "stone_solid"},
     {"x": 14, "y": 15, "type": "stone_solid"},
     {"x": 15, "y": 15, "type": "stone_solid"},
-    {"x": 8, "y": 8, "type": "lava_trap"},
-    {"x": 7, "y": 7, "type": "save_checkpoint"},
+
+    {"x": 5, "y": 2, "type": "stone_solid"},
+    {"x": 5, "y": 3, "type": "stone_solid"},
+    {"x": 5, "y": 4, "type": "stone_solid"},
+
+    {"x": 10, "y": 5, "type": "stone_solid"},
+    {"x": 10, "y": 6, "type": "stone_solid"},
+    {"x": 10, "y": 7, "type": "stone_solid"},
+
+    {"x": 3, "y": 8, "type": "stone_solid"},
+    {"x": 4, "y": 8, "type": "stone_solid"},
+
+    {"x": 12, "y": 8, "type": "stone_solid"},
+    {"x": 12, "y": 9, "type": "stone_solid"},
+    {"x": 12, "y": 10, "type": "stone_solid"},
+
+    {"x": 7, "y": 11, "type": "stone_solid"},
+    {"x": 8, "y": 11, "type": "stone_solid"},
+
+    {"x": 6, "y": 3, "type": "lava_trap"},
+    {"x": 3, "y": 6, "type": "lava_trap"},
+    {"x": 11, "y": 9, "type": "lava_trap"},
+    {"x": 8, "y": 13, "type": "lava_trap"},
     {"x": 14, "y": 14, "type": "exit_goal"}
   ],
   "npcs": [
     {
       "x": 2,
       "y": 2,
-      "name": "Greeter",
+      "name": "Guide",
       "dialogue": [
         "Welcome to VoxParty!",
-        "Use arrow keys to move.",
-        "Find the exit goal to win!"
+        "Use ARROW KEYS to move.",
+        "Reach the EXIT to win!",
+        "Avoid the lava tiles!"
+      ]
+    },
+    {
+      "x": 4,
+      "y": 7,
+      "name": "Helper",
+      "dialogue": [
+        "That lava resets after 3 seconds.",
+        "Use the checkpoints to save your progress!"
       ]
     }
   ],
   "checkpoints": [
-    {"x": 7, "y": 7}
+    {"x": 4, "y": 5},
+    {"x": 9, "y": 8},
+    {"x": 13, "y": 13}
   ],
   "spawn_points": [
     { "x": 1, "y": 1, "player": 1 },

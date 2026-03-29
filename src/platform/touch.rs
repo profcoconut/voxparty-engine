@@ -39,6 +39,9 @@ pub enum GameInput {
     MoveDown,
     Jump,
     Interact,
+    Confirm,
+    Back,
+    Pause,
 }
 
 pub struct VirtualGamepad {

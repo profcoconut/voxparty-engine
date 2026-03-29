@@ -47,6 +47,7 @@ pub struct Episode {
     pub title: String,
     pub mode: String,
     pub theme: String,
+    pub difficulty: String,
     pub duration_target_seconds: u32,
     pub tile_width: u32,
     pub tile_height: u32,
@@ -76,7 +77,7 @@ mod tests {
         let ep = Episode::load("assets/episodes/demo.json");
         assert_eq!(ep.id, "ep_demo");
         assert_eq!(ep.title, "Demo Island");
-        assert_eq!(ep.mode, "last_standing");
+        assert_eq!(ep.mode, "solo");
         assert_eq!(ep.theme, "grassland");
         assert_eq!(ep.duration_target_seconds, 120);
         assert_eq!(ep.tile_width, 64);
@@ -163,6 +164,7 @@ mod tests {
             "title": "Test",
             "mode": "solo",
             "theme": "cave",
+            "difficulty": "hard",
             "duration_target_seconds": 60,
             "tile_width": 64,
             "tile_height": 32,
@@ -180,6 +182,7 @@ mod tests {
         assert_eq!(ep.title, "Test");
         assert_eq!(ep.mode, "solo");
         assert_eq!(ep.theme, "cave");
+        assert_eq!(ep.difficulty, "hard");
         assert_eq!(ep.duration_target_seconds, 60);
         assert_eq!(ep.grid_width, 8);
         assert_eq!(ep.grid_height, 8);

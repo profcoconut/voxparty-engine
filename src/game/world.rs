@@ -108,6 +108,13 @@ impl World {
         self.get_tile(x, y) == TileType::Goal
     }
 
+    /// Return (reached, total) checkpoint count.
+    pub fn checkpoint_progress(&self) -> (usize, usize) {
+        let reached = self.checkpoints.iter().filter(|cp| cp.2).count();
+        let total = self.checkpoints.len();
+        (reached, total)
+    }
+
     /// Get all non-passable tiles at a given depth, for rendering.
     pub fn tiles_at_depth(&self, depth: i32) -> Vec<(i32, i32, TileType)> {
         let mut result = Vec::new();
@@ -141,6 +148,7 @@ mod tests {
             "title": "Test",
             "mode": "solo",
             "theme": "cave",
+            "difficulty": "easy",
             "duration_target_seconds": 60,
             "tile_width": 64,
             "tile_height": 32,
@@ -178,6 +186,7 @@ mod tests {
             "title": "Test",
             "mode": "solo",
             "theme": "cave",
+            "difficulty": "medium",
             "duration_target_seconds": 60,
             "tile_width": 64,
             "tile_height": 32,
@@ -239,6 +248,7 @@ mod tests {
             "title": "Test",
             "mode": "solo",
             "theme": "cave",
+            "difficulty": "easy",
             "duration_target_seconds": 60,
             "tile_width": 64,
             "tile_height": 32,
