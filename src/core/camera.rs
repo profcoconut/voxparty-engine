@@ -82,3 +82,60 @@ impl Camera {
         self.y += (self.target_y - self.y) * self.lerp_speed;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_centers_camera() {
+        // 16x16 grid world, 1280x720 screen
+        let cam = Camera::new(1280, 720, 16, 16);
+        // Camera starts at world_center - screen_center
+        // grid_to_screen(8, 8) = (0, 256); offset = (0-640, 256-360) = (-640, -104)
+        assert_eq!(cam.x, -640.0, "camera x = world_center - screen_w/2");
+        assert_eq!(cam.y, -104.0, "camera y = world_center - screen_h/2");
+        // Target should match actual (no lerp needed at start)
+        assert_eq!(cam.x, cam.target_x);
+        assert_eq!(cam.y, cam.target_y);
+    }
+
+    #[test]
+    fn test_follow_moves_camera_toward_target() {
+        let mut cam = Camera::new(1280, 720, 16, 16);
+        let initial_x = cam.x;
+        // Follow a position far from current center
+        cam.follow(0.0, 0.0);
+        // Camera should have moved (lerp speed = 0.1, so partially toward target)
+        assert_ne!(cam.x, initial_x, "camera x should move after follow()");
+    }
+
+    #[test]
+    fn test_follow_lerp_speed() {
+        // Test that camera lerps toward target, not snapping
+        let mut cam = Camera::new(1280, 720, 32, 32);
+        cam.lerp_speed = 0.5;
+        // Initial camera at world center: x=-640, y=152
+        // follow(0,0) sets clamped target to (0,0)
+        // x lerps: -640 + (0+640)*0.5 = -320
+        // y lerps: 152 + (0-152)*0.5 = 76
+        cam.follow(0.0, 0.0);
+        assert_eq!(cam.x, -320.0, "x lerps halfway to target at lerp_speed=0.5");
+        assert_eq!(cam.y, 76.0, "y lerps halfway to target at lerp_speed=0.5");
+    }
+
+    #[test]
+    fn test_follow_clamps_to_world_bounds() {
+        // World smaller than screen: camera can't show the full world
+        let mut cam = Camera::new(1280, 720, 4, 4);
+        cam.lerp_speed = 1.0;
+        // Follow far beyond world edge
+        cam.follow(100.0, 100.0);
+        // Camera target should be clamped to world bounds
+        let _max_x: f32 = 4.0 * 64.0 - 1280.0; // world smaller than screen
+        let _max_y: f32 = 4.0 * 32.0 - 720.0;
+        // With world smaller than screen, clamping puts camera at 0 (can't go negative)
+        assert_eq!(cam.target_x, 0.0, "camera clamped to 0 when world < screen width");
+        assert_eq!(cam.target_y, 0.0, "camera clamped to 0 when world < screen height");
+    }
+}
