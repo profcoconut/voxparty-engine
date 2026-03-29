@@ -1,8 +1,9 @@
 {
-  "id": "ep_frozen_night",
+  "id": "ep_frozen",
   "title": "Frozen Night",
   "mode": "solo",
   "theme": "night_ice",
+  "difficulty": "hard",
   "color_palette_hint": "dark blues, icy whites, silver accents, with warm golden checkpoint glow",
   "music": null,
   "duration_target_seconds": 210,
