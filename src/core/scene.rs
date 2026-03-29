@@ -10,9 +10,9 @@ pub enum SceneState {
 pub struct Scene {
     pub state: SceneState,
     /// Countdown timer for title card (seconds)
-    title_timer: f32,
+    pub title_timer: f32,
     /// Countdown timer for game over screen (seconds)
-    gameover_timer: f32,
+    pub gameover_timer: f32,
     /// Winner player ID (1 or 2), if game over due to win
     pub winner: Option<u8>,
 }

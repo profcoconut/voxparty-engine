@@ -1,3 +1,4 @@
+pub mod debug;
 pub mod isom;
 pub mod camera;
 pub mod sprites;

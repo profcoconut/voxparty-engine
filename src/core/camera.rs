@@ -5,8 +5,8 @@ pub struct Camera {
     pub x: f32,
     pub y: f32,
     /// Target pixel offset (lerped toward)
-    target_x: f32,
-    target_y: f32,
+    pub target_x: f32,
+    pub target_y: f32,
     /// Screen dimensions in pixels
     screen_w: u32,
     screen_h: u32,

@@ -4,7 +4,7 @@ pub mod game;
 pub mod assets;
 
 use platform::{Platform, TouchHandler, AudioManager};
-use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, depth_key};
+use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, depth_key, debug::DebugOverlay};
 use game::{Episode, Player, PlayerState, Npc, World};
 use game::input::gamepad_to_inputs;
 use assets::loader;
@@ -76,6 +76,14 @@ fn inner_run(screen_w: u32, screen_h: u32) {
     let _ = audio.load_sfx("checkpoint", "assets/sounds/checkpoint.wav");
     let _ = &audio;
 
+    // Debug overlay
+    let mut debug = DebugOverlay::new();
+    let mut god_mode = false;
+    // Cheat keys are only active after F1 has been pressed at least once
+    let mut cheats_enabled = false;
+    // Deferred sprite reload — set by R key, executed after event loop
+    let mut pending_sprite_reload = false;
+
     let dt = 1.0 / 60.0;
 
     // Game loop
@@ -86,6 +94,71 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             if let sdl2::event::Event::Quit { .. } = event {
                 return;
             }
+
+            // Debug overlay toggle and cheat keys — only active after F1 pressed
+            if let sdl2::event::Event::KeyDown { scancode: Some(sc), .. } = event {
+                match sc {
+                    sdl2::keyboard::Scancode::F1 => {
+                        debug.toggle();
+                        cheats_enabled = debug.is_visible();
+                        if cheats_enabled {
+                            eprintln!("[DEBUG] Cheats enabled");
+                        }
+                    }
+                    _ if cheats_enabled => {
+                        match sc {
+                            sdl2::keyboard::Scancode::R => {
+                                eprintln!("[DEBUG] Reloading sprites...");
+                                pending_sprite_reload = true;
+                            }
+                            sdl2::keyboard::Scancode::G => {
+                                god_mode = !god_mode;
+                                eprintln!("[DEBUG] God mode: {}", god_mode);
+                            }
+                            sdl2::keyboard::Scancode::C => {
+                                eprintln!(
+                                    "[DEBUG] CAM: target=({:.1}, {:.1}) actual=({:.1}, {:.1})",
+                                    camera.target_x, camera.target_y, camera.x, camera.y
+                                );
+                            }
+                            sdl2::keyboard::Scancode::P => {
+                                eprintln!(
+                                    "[DEBUG] P1: ({}, {}) {:?}  P2: ({}, {}) {:?}",
+                                    player1.grid_x, player1.grid_y, player1.state,
+                                    player2.grid_x, player2.grid_y, player2.state
+                                );
+                            }
+                            sdl2::keyboard::Scancode::Num1 => {
+                                scene.state = SceneState::Menu;
+                                eprintln!("[DEBUG] Jump to Menu");
+                            }
+                            sdl2::keyboard::Scancode::Num2 => {
+                                scene.state = SceneState::TitleCard;
+                                scene.title_timer = 3.0;
+                                eprintln!("[DEBUG] Jump to TitleCard");
+                            }
+                            sdl2::keyboard::Scancode::Num3 => {
+                                scene.state = SceneState::Playing;
+                                eprintln!("[DEBUG] Jump to Playing");
+                            }
+                            sdl2::keyboard::Scancode::Num4 => {
+                                scene.state = SceneState::GameOver;
+                                scene.gameover_timer = 5.0;
+                                eprintln!("[DEBUG] Jump to GameOver");
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Execute deferred sprite reload after event loop
+        if pending_sprite_reload {
+            let _ = plat.load_sprite("tiles", "assets/sprites/tiles.png");
+            let _ = plat.load_sprite("characters", "assets/sprites/characters.png");
+            pending_sprite_reload = false;
         }
 
         // --- UPDATE ---
@@ -114,9 +187,9 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 scene.trigger_gameover(Some(1));
             } else if player2.state == PlayerState::Won {
                 scene.trigger_gameover(Some(2));
-            } else if player1.state == PlayerState::Eliminated {
+            } else if player1.state == PlayerState::Eliminated && !god_mode {
                 scene.trigger_gameover(Some(2));
-            } else if player2.state == PlayerState::Eliminated {
+            } else if player2.state == PlayerState::Eliminated && !god_mode {
                 scene.trigger_gameover(Some(1));
             }
 
@@ -125,6 +198,49 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 scene.return_to_menu();
             }
         }
+
+        // Update debug overlay
+        debug.update_fps(dt);
+        let mouse_state = plat.event_pump.mouse_state();
+        debug.update_mouse((mouse_state.x(), mouse_state.y()), &camera);
+
+        // Build input direction strings for overlay
+        let p1_dirs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y)
+            .iter()
+            .map(|i| match i {
+                platform::GameInput::MoveLeft => "L",
+                platform::GameInput::MoveRight => "R",
+                platform::GameInput::MoveUp => "U",
+                platform::GameInput::MoveDown => "D",
+                _ => "",
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        let p2_dirs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y)
+            .iter()
+            .map(|i| match i {
+                platform::GameInput::MoveLeft => "L",
+                platform::GameInput::MoveRight => "R",
+                platform::GameInput::MoveUp => "U",
+                platform::GameInput::MoveDown => "D",
+                _ => "",
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        let input_state = core::debug::DebugInputState {
+            p1_dirs,
+            p2_dirs,
+        };
+        let debug_state = core::debug::DebugState {
+            scene: &scene,
+            player1: &player1,
+            player2: &player2,
+            camera: &camera,
+            mouse_screen: (mouse_state.x(), mouse_state.y()),
+            input: &input_state,
+            god_mode,
+        };
 
         // --- RENDER ---
         match scene.state {
@@ -174,6 +290,9 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 }
             }
         }
+
+        // Debug overlay renders on top of everything
+        debug.render(&mut plat.canvas, &debug_state);
 
         plat.present();
         plat.delay(16);
