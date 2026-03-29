@@ -40,7 +40,7 @@ impl AudioManager {
         if let Ok(decoder) = rodio::Decoder::new(cursor) {
             if let Ok(sink) = Sink::try_new(&self._stream_handle) {
                 sink.append(decoder);
-                sink.detach();
+                // NOTE: do NOT detach — sink must live for audio to finish playing
             }
         }
     }
@@ -49,7 +49,13 @@ impl AudioManager {
     pub fn play_music(&mut self, path: &str) {
         if let Ok(file) = File::open(path) {
             if let Ok(decoder) = rodio::Decoder::new(file) {
-                let sink = Sink::try_new(&self._stream_handle).unwrap();
+                let sink = match Sink::try_new(&self._stream_handle) {
+                    Ok(sink) => sink,
+                    Err(e) => {
+                        log::warn!("Failed to create audio sink for music: {}", e);
+                        return;
+                    }
+                };
                 sink.append(decoder.repeat_infinite());
                 self.music_sink = Some(sink);
             }

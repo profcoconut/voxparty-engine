@@ -52,8 +52,10 @@ fn inner_run(screen_w: u32, screen_h: u32) {
     let _ = &tiles_sheet;
 
     // Players
-    let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1).unwrap();
-    let spawn2 = episode.spawn_points.iter().find(|s| s.player == 2).unwrap();
+    let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1)
+        .expect("Player 1 spawn point missing in episode");
+    let spawn2 = episode.spawn_points.iter().find(|s| s.player == 2)
+        .expect("Player 2 spawn point missing in episode");
     let mut player1 = Player::new(1, spawn1.x, spawn1.y);
     let mut player2 = Player::new(2, spawn2.x, spawn2.y);
 
@@ -206,6 +208,10 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 npc.tick(dt);
             }
 
+            // Advance player animations (must be called every frame to update animation frames)
+            player1.anim.tick(dt, &chars_sheet);
+            player2.anim.tick(dt, &chars_sheet);
+
             // minpoc-3: Process Interact input — find nearest NPC and trigger dialogue
             if interact_pressed {
                 interact_pressed = false;
@@ -247,6 +253,12 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 scene.return_to_menu();
             }
         }
+
+        // Extract player frame data for rendering (must happen before debug_state borrow)
+        let p1_frame = player1.anim.current_frame()
+            .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
+        let p2_frame = player2.anim.current_frame()
+            .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
 
         // Update debug overlay
         debug.update_fps(dt);
@@ -325,15 +337,19 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let _ = plat.blit_sprite("characters", dst, None);
+                    let src = chars_sheet.frames.get("player1_idle")
+                        .map(|f| sdl2::rect::Rect::new(f.x as i32, f.y as i32, f.w as u32, f.h as u32));
+                    let _ = plat.blit_sprite("characters", dst, src);
                 }
 
-                // Draw players
-                for player in &[&player1, &player2] {
-                    let (px, py) = grid_to_screen(player.grid_x as f32, player.grid_y as f32, camera.x, camera.y);
-                    let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let _ = plat.blit_sprite("characters", dst, None);
-                }
+                // Draw players with pre-extracted animation frames
+                let (p1x, p1y) = grid_to_screen(player1.grid_x as f32, player1.grid_y as f32, camera.x, camera.y);
+                let p1_dst = sdl2::rect::Rect::new(p1x as i32, p1y as i32 - 32, 64, 64);
+                let _ = plat.blit_sprite("characters", p1_dst, p1_frame);
+
+                let (p2x, p2y) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
+                let p2_dst = sdl2::rect::Rect::new(p2x as i32, p2y as i32 - 32, 64, 64);
+                let _ = plat.blit_sprite("characters", p2_dst, p2_frame);
 
                 // Draw game over overlay
                 if scene.state == SceneState::GameOver {
