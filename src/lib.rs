@@ -104,6 +104,12 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                             eprintln!("[DEBUG] Cheats enabled");
                         }
                     }
+                    // Unit 4: Wire Menu → start_game() transition
+                    sdl2::keyboard::Scancode::Space | sdl2::keyboard::Scancode::Return => {
+                        if scene.state == SceneState::Menu {
+                            scene.start_game();
+                        }
+                    }
                     _ if cheats_enabled => {
                         match sc {
                             sdl2::keyboard::Scancode::R => {
@@ -186,10 +192,17 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 scene.trigger_gameover(Some(1));
             } else if player2.state == PlayerState::Won {
                 scene.trigger_gameover(Some(2));
-            } else if player1.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(Some(2));
-            } else if player2.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(Some(1));
+            }
+            // Unit 5: Respawn each eliminated player individually
+            if player1.state == PlayerState::Eliminated && !god_mode {
+                player1.respawn();
+            }
+            if player2.state == PlayerState::Eliminated && !god_mode {
+                player2.respawn();
+            }
+            // Last-standing: game-over only when BOTH eliminated simultaneously
+            if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
+                scene.trigger_gameover(None); // draw
             }
 
             // Game over timer done → return to menu
@@ -491,9 +504,9 @@ mod respawn_tests {
     /// Game should NOT end — gameplay continues.
     #[test]
     fn test_single_elimination_leads_to_respawn() {
-        let mut scene = Scene::new();
+        let scene = Scene::new();
         let mut player1 = Player::new(1, 5, 5);
-        let mut player2 = Player::new(2, 6, 5);
+        let player2 = Player::new(2, 6, 5);
 
         // Simulate P1 eliminated by trap (P2 still alive)
         player1.state = PlayerState::Eliminated;
