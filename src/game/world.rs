@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_demo_episode_has_goal_tile() {
         use crate::game::episode::Episode;
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         let world = World::from_episode(ep);
         // Demo episode should have at least one goal tile
         let mut found_goal = false;
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_demo_episode_has_non_passable_tiles() {
         use crate::game::episode::Episode;
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         let world = World::from_episode(ep);
         // Demo episode should have non-passable tiles (walls, traps, etc.)
         let mut found_non_passable = false;

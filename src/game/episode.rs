@@ -62,9 +62,11 @@ pub struct Episode {
 }
 
 impl Episode {
-    pub fn load(path: &str) -> Self {
-        let data = std::fs::read_to_string(path).expect("Failed to load episode");
-        serde_json::from_str(&data).expect("Failed to parse episode JSON")
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to load episode '{}': {}", path, e))?;
+        serde_json::from_str(&data)
+            .map_err(|e| format!("Failed to parse episode '{}': {}", path, e))
     }
 }
 
@@ -74,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_load_demo_episode_fields() {
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         assert_eq!(ep.id, "ep_demo");
         assert_eq!(ep.title, "Demo Island");
         assert_eq!(ep.mode, "solo");
@@ -88,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_load_demo_episode_has_content() {
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         // Demo episode now has tiles (walls, trap, checkpoint, goal)
         assert!(!ep.tiles.is_empty(), "demo episode should have tiles");
         // Demo episode may have NPCs for dialogue/interaction
@@ -98,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_load_demo_episode_spawn_points() {
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         assert_eq!(ep.spawn_points.len(), 2);
         assert_eq!(ep.spawn_points[0].x, 1);
         assert_eq!(ep.spawn_points[0].y, 1);
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_load_demo_episode_conditions() {
-        let ep = Episode::load("assets/episodes/demo.json");
+        let ep = Episode::load("assets/episodes/demo.json").unwrap();
         assert_eq!(ep.win_condition.cond_type, "reach_goal");
         assert_eq!(ep.fail_condition.cond_type, "fall_off_map");
     }
@@ -192,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_load_episode2_required_fields() {
-        let ep = Episode::load("assets/episodes/episode2.json");
+        let ep = Episode::load("assets/episodes/episode2.json").unwrap();
         assert_eq!(ep.id, "ep_lava_cave");
         assert_eq!(ep.difficulty, "medium");
         assert_eq!(ep.theme, "volcanic_underground");
@@ -200,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_load_episode3_required_fields() {
-        let ep = Episode::load("assets/episodes/episode3.json");
+        let ep = Episode::load("assets/episodes/episode3.json").unwrap();
         assert_eq!(ep.id, "ep_frozen");
         assert_eq!(ep.difficulty, "hard");
         assert_eq!(ep.theme, "night_ice");
@@ -213,7 +215,7 @@ mod tests {
         for entry in entries {
             let path = entry.unwrap().path();
             if path.extension().map_or(false, |e| e == "json") {
-                let ep = Episode::load(&path.to_string_lossy());
+                let ep = Episode::load(&path.to_string_lossy()).unwrap();
                 assert!(!ep.difficulty.is_empty(), "{:?} missing difficulty", path);
                 assert!(!ep.id.is_empty(), "{:?} missing id", path);
                 assert!(!ep.title.is_empty(), "{:?} missing title", path);

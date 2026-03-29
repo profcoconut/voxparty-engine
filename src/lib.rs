@@ -68,14 +68,14 @@ fn reload_episode_game_state(
     episode_path: &str,
     screen_w: u32,
     screen_h: u32,
-) -> (Episode, World, Player, Player, Vec<Npc>, Camera) {
-    let episode = Episode::load(episode_path);
+) -> Result<(Episode, World, Player, Player, Vec<Npc>, Camera), String> {
+    let episode = Episode::load(episode_path).map_err(|e| format!("Failed to load episode: {}", e))?;
     let world = World::from_episode(episode.clone());
 
     let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1)
-        .unwrap_or_else(|| panic!("Player 1 spawn point missing in episode"));
+        .ok_or_else(|| format!("Player 1 spawn point missing in episode '{}'", episode.id))?;
     let spawn2 = episode.spawn_points.iter().find(|s| s.player == 2)
-        .unwrap_or_else(|| panic!("Player 2 spawn point missing in episode"));
+        .ok_or_else(|| format!("Player 2 spawn point missing in episode '{}'", episode.id))?;
     let player1 = Player::new(1, spawn1.x, spawn1.y);
     let player2 = Player::new(2, spawn2.x, spawn2.y);
 
@@ -87,7 +87,7 @@ fn reload_episode_game_state(
 
     let camera = Camera::new(screen_w, screen_h, episode.grid_width, episode.grid_height);
 
-    (episode, world, player1, player2, npcs, camera)
+    Ok((episode, world, player1, player2, npcs, camera))
 }
 
 fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
@@ -122,7 +122,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let _ = plat.load_sprite_from_bytes("characters", 192, 192, &chars_bytes);
 
     // Load episode
-    let mut episode = Episode::load("assets/episodes/demo.json");
+    let mut episode = Episode::load("assets/episodes/demo.json")
+        .expect("Failed to load demo episode. Make sure the game is run from the project root directory.");
     let mut world = World::from_episode(episode.clone());
 
     // Sprite sheets
@@ -307,8 +308,14 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                 let selected_idx = scene.selected_episode_index.min(episodes.len() - 1);
                                 let (_ep_id, ep_path) = &episodes[selected_idx];
                                 // Reload game state with selected episode
-                                let (new_ep, new_world, new_p1, new_p2, new_npcs, new_cam) =
-                                    reload_episode_game_state(ep_path, screen_w, screen_h);
+                                let result = reload_episode_game_state(ep_path, screen_w, screen_h);
+                                let (new_ep, new_world, new_p1, new_p2, new_npcs, new_cam) = match result {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        eprintln!("[ERROR] {}", e);
+                                        continue;
+                                    }
+                                };
                                 episode = new_ep;
                                 world = new_world;
                                 player1 = new_p1;
@@ -795,7 +802,13 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                 let card_y = 200;
 
                 for (i, (ep_id, _ep_path)) in episodes.iter().enumerate() {
-                    let ep = Episode::load(&format!("{}/{}.json", EPISODES_DIR, ep_id));
+                    let ep = match Episode::load(&format!("{}/{}.json", EPISODES_DIR, ep_id)) {
+                        Ok(ep) => ep,
+                        Err(e) => {
+                            eprintln!("[ERROR] Failed to load episode {}: {}", ep_id, e);
+                            continue;
+                        }
+                    };
                     let is_selected = i == scene.selected_episode_index;
                     let card_x = start_x + i as i32 * (card_width + card_spacing);
 
