@@ -274,14 +274,14 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 for npc in &npcs {
                     let (px, py) = grid_to_screen(npc.grid_x as f32, npc.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let _ = (npc, dst);
+                    let _ = plat.blit_sprite("characters", dst, None);
                 }
 
                 // Draw players
                 for player in &[&player1, &player2] {
                     let (px, py) = grid_to_screen(player.grid_x as f32, player.grid_y as f32, camera.x, camera.y);
                     let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
-                    let _ = (player, dst);
+                    let _ = plat.blit_sprite("characters", dst, None);
                 }
 
                 // Draw game over overlay

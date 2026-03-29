@@ -141,4 +141,42 @@ mod tests {
         // S = (0, 1) in grid space = moving down-right in screen
         assert_eq!(DIRECTIONS[4], (0, 1));
     }
+
+    #[test]
+    fn test_npc_player_dst_rect_computation() {
+        // NPC/player rendering in lib.rs uses:
+        //   let (px, py) = grid_to_screen(gx as f32, gy as f32, camera.x, camera.y);
+        //   let dst = sdl2::rect::Rect::new(px as i32, py as i32 - 32, 64, 64);
+        // Verify the dst rect matches expected pixel coordinates.
+        let (cam_x, cam_y) = (0.0, 0.0);
+        let (gx, gy) = (3.0, 2.0);
+
+        let (px, py) = grid_to_screen(gx, gy, cam_x, cam_y);
+        // Expected: px = (3-2)*32 = 32, py = (3+2)*16 = 80
+        assert!((px - 32.0).abs() < 0.001, "px = {}", px);
+        assert!((py - 80.0).abs() < 0.001, "py = {}", py);
+
+        let dst_x = px as i32;
+        let dst_y = py as i32 - 32;
+        assert_eq!(dst_x, 32, "dst.x should be px cast to i32");
+        assert_eq!(dst_y, 48, "dst.y should be py - 32 (sprite offset up)");
+    }
+
+    #[test]
+    fn test_npc_player_dst_rect_with_camera_offset() {
+        // Same check with a non-zero camera offset (camera centered on player)
+        let (cam_x, cam_y) = (320.0, 180.0);
+        let (gx, gy) = (5.0, 3.0);
+
+        let (px, py) = grid_to_screen(gx, gy, cam_x, cam_y);
+        // px = (5-3)*32 - 320 = 64 - 320 = -256
+        // py = (5+3)*16 - 180 = 128 - 180 = -52
+        assert!((px - (-256.0)).abs() < 0.001, "px = {}", px);
+        assert!((py - (-52.0)).abs() < 0.001, "py = {}", py);
+
+        let dst_x = px as i32;
+        let dst_y = py as i32 - 32;
+        assert_eq!(dst_x, -256, "dst.x with camera offset");
+        assert_eq!(dst_y, -84, "dst.y with camera offset (py - 32)");
+    }
 }
