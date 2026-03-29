@@ -309,4 +309,47 @@ mod tests {
             assert_ne!(t, TileType::Passable, "tile at ({}, {}) should not be Passable", x, y);
         }
     }
+
+    #[test]
+    fn test_demo_episode_has_goal_tile() {
+        use crate::game::episode::Episode;
+        let ep = Episode::load("assets/episodes/demo.json");
+        let world = World::from_episode(ep);
+        // Demo episode should have at least one goal tile
+        let mut found_goal = false;
+        for y in 0..world.grid_h {
+            for x in 0..world.grid_w {
+                if world.check_goal(x, y) {
+                    found_goal = true;
+                    break;
+                }
+            }
+            if found_goal {
+                break;
+            }
+        }
+        assert!(found_goal, "demo episode should have at least one goal tile");
+    }
+
+    #[test]
+    fn test_demo_episode_has_non_passable_tiles() {
+        use crate::game::episode::Episode;
+        let ep = Episode::load("assets/episodes/demo.json");
+        let world = World::from_episode(ep);
+        // Demo episode should have non-passable tiles (walls, traps, etc.)
+        let mut found_non_passable = false;
+        for y in 0..world.grid_h {
+            for x in 0..world.grid_w {
+                let tile = world.get_tile(x, y);
+                if tile != TileType::Passable {
+                    found_non_passable = true;
+                    break;
+                }
+            }
+            if found_non_passable {
+                break;
+            }
+        }
+        assert!(found_non_passable, "demo episode should have non-passable tiles");
+    }
 }

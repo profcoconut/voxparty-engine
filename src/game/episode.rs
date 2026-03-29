@@ -86,11 +86,13 @@ mod tests {
     }
 
     #[test]
-    fn test_load_demo_episode_empty_arrays() {
+    fn test_load_demo_episode_has_content() {
         let ep = Episode::load("assets/episodes/demo.json");
-        assert!(ep.tiles.is_empty());
+        // Demo episode now has tiles (walls, trap, checkpoint, goal)
+        assert!(!ep.tiles.is_empty(), "demo episode should have tiles");
         assert!(ep.npcs.is_empty());
-        assert!(ep.checkpoints.is_empty());
+        // Demo episode now has a checkpoint
+        assert!(!ep.checkpoints.is_empty(), "demo episode should have checkpoints");
     }
 
     #[test]
