@@ -189,4 +189,35 @@ mod tests {
         assert!(ep.tiles.is_empty());
         assert!(ep.spawn_points.is_empty());
     }
+
+    #[test]
+    fn test_load_episode2_required_fields() {
+        let ep = Episode::load("assets/episodes/episode2.json");
+        assert_eq!(ep.id, "ep_lava_cave");
+        assert_eq!(ep.difficulty, "medium");
+        assert_eq!(ep.theme, "volcanic_underground");
+    }
+
+    #[test]
+    fn test_load_episode3_required_fields() {
+        let ep = Episode::load("assets/episodes/episode3.json");
+        assert_eq!(ep.id, "ep_frozen");
+        assert_eq!(ep.difficulty, "hard");
+        assert_eq!(ep.theme, "night_ice");
+    }
+
+    #[test]
+    fn test_all_episode_files_have_required_fields() {
+        let episodes_dir = "assets/episodes";
+        let entries = std::fs::read_dir(episodes_dir).unwrap();
+        for entry in entries {
+            let path = entry.unwrap().path();
+            if path.extension().map_or(false, |e| e == "json") {
+                let ep = Episode::load(&path.to_string_lossy());
+                assert!(!ep.difficulty.is_empty(), "{:?} missing difficulty", path);
+                assert!(!ep.id.is_empty(), "{:?} missing id", path);
+                assert!(!ep.title.is_empty(), "{:?} missing title", path);
+            }
+        }
+    }
 }
