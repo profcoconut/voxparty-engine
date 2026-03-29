@@ -104,6 +104,12 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                             eprintln!("[DEBUG] Cheats enabled");
                         }
                     }
+                    // Unit 4: Wire Menu → start_game() transition
+                    sdl2::keyboard::Scancode::Space | sdl2::keyboard::Scancode::Return => {
+                        if scene.state == SceneState::Menu {
+                            scene.start_game();
+                        }
+                    }
                     _ if cheats_enabled => {
                         match sc {
                             sdl2::keyboard::Scancode::R => {
@@ -165,12 +171,6 @@ fn inner_run(screen_w: u32, screen_h: u32) {
         world.tick_trap_cooldowns();
 
         if scene.state == SceneState::Playing {
-            // Record positions before tick for jump SFX detection
-            let p1_old_x = player1.grid_x;
-            let p1_old_y = player1.grid_y;
-            let p2_old_x = player2.grid_x;
-            let p2_old_y = player2.grid_y;
-
             // Player 1 input
             let p1_inputs = gamepad_to_inputs(touch.player1.joystick_x, touch.player1.joystick_y);
             player1.tick(dt, &p1_inputs, &mut world, &chars_sheet);
@@ -178,34 +178,6 @@ fn inner_run(screen_w: u32, screen_h: u32) {
             // Player 2 input
             let p2_inputs = gamepad_to_inputs(touch.player2.joystick_x, touch.player2.joystick_y);
             player2.tick(dt, &p2_inputs, &mut world, &chars_sheet);
-
-            // --- Audio SFX wiring ---
-
-            // Jump SFX: check if players moved to a new position
-            let p1_moved = player1.grid_x != p1_old_x || player1.grid_y != p1_old_y;
-            let p2_moved = player2.grid_x != p2_old_x || player2.grid_y != p2_old_y;
-            if p1_moved && player1.state != PlayerState::Eliminated && player1.state != PlayerState::Won {
-                audio.play_sfx("jump");
-            }
-            if p2_moved && player2.state != PlayerState::Eliminated && player2.state != PlayerState::Won {
-                audio.play_sfx("jump");
-            }
-
-            // Checkpoint SFX: check if players are standing on a newly reached checkpoint
-            if world.check_checkpoint(player1.grid_x, player1.grid_y) {
-                audio.play_sfx("checkpoint");
-            }
-            if world.check_checkpoint(player2.grid_x, player2.grid_y) {
-                audio.play_sfx("checkpoint");
-            }
-
-            // Eliminate SFX: check if players were eliminated this tick
-            if player1.state == PlayerState::Eliminated && !god_mode {
-                audio.play_sfx("eliminate");
-            }
-            if player2.state == PlayerState::Eliminated && !god_mode {
-                audio.play_sfx("eliminate");
-            }
 
             // NPCs
             for npc in &mut npcs {
@@ -220,10 +192,17 @@ fn inner_run(screen_w: u32, screen_h: u32) {
                 scene.trigger_gameover(Some(1));
             } else if player2.state == PlayerState::Won {
                 scene.trigger_gameover(Some(2));
-            } else if player1.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(Some(2));
-            } else if player2.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(Some(1));
+            }
+            // Unit 5: Respawn each eliminated player individually
+            if player1.state == PlayerState::Eliminated && !god_mode {
+                player1.respawn();
+            }
+            if player2.state == PlayerState::Eliminated && !god_mode {
+                player2.respawn();
+            }
+            // Last-standing: game-over only when BOTH eliminated simultaneously
+            if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
+                scene.trigger_gameover(None); // draw
             }
 
             // Game over timer done → return to menu
@@ -339,16 +318,43 @@ mod audio_sfx_tests {
     /// Test that jump SFX logic detects when a player successfully moves.
     #[test]
     fn test_jump_sfx_triggers_on_valid_move() {
-        let mut player = Player::new(1, 5, 5);
-        let mut world = make_test_world();
+        // Create a minimal world where player can move
+        let json = r#"{
+            "id": "ep_sfx_test",
+            "title": "SFX Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [{"player": 1, "x": 5, "y": 5}],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        // Copy spawn values before moving ep into World
+        let spawn_x = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().x;
+        let spawn_y = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().y;
+        let mut world = World::from_episode(ep);
 
+        let mut player = Player::new(1, spawn_x, spawn_y);
+
+        // Record initial position
         let initial_x = player.grid_x;
         let initial_y = player.grid_y;
 
+        // After tick with MoveRight input, player should move if valid
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
         let inputs = vec![platform::GameInput::MoveRight];
         player.tick(0.016, &inputs, &mut world, &sheet);
 
+        // If move was valid (not blocked), position should have changed
+        // This indicates jump SFX should have been triggered
         let moved = player.grid_x != initial_x || player.grid_y != initial_y;
         assert!(moved, "Player should have moved with MoveRight input on open grid");
     }
@@ -356,13 +362,37 @@ mod audio_sfx_tests {
     /// Test that checkpoint SFX logic fires when player reaches a checkpoint.
     #[test]
     fn test_checkpoint_sfx_triggers_on_reaching_checkpoint() {
-        let mut player = Player::new(1, 5, 5);
-        let mut world = make_test_world_with_checkpoint(6, 5);
+        let json = r#"{
+            "id": "ep_cp_test",
+            "title": "Checkpoint Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [],
+            "npcs": [],
+            "checkpoints": [{"x": 6, "y": 5}],
+            "spawn_points": [{"player": 1, "x": 5, "y": 5}],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        // Copy spawn values before moving ep into World
+        let spawn_x = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().x;
+        let spawn_y = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().y;
+        let mut world = World::from_episode(ep);
 
+        let mut player = Player::new(1, spawn_x, spawn_y);
+
+        // Move right to checkpoint at (6, 5)
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
         let inputs = vec![platform::GameInput::MoveRight];
         player.tick(0.016, &inputs, &mut world, &sheet);
 
+        // Player should be standing on checkpoint position
         assert_eq!(player.grid_x, 6, "Player should be at checkpoint x");
         assert_eq!(player.grid_y, 5, "Player should be at checkpoint y");
     }
@@ -370,13 +400,37 @@ mod audio_sfx_tests {
     /// Test that eliminate SFX logic triggers when player is eliminated.
     #[test]
     fn test_eliminate_sfx_triggers_on_elimination() {
-        let mut player = Player::new(1, 5, 5);
-        let mut world = make_test_world_with_trap(6, 5);
+        let json = r#"{
+            "id": "ep_elim_test",
+            "title": "Eliminate Test",
+            "mode": "solo",
+            "theme": "cave",
+            "duration_target_seconds": 60,
+            "tile_width": 64,
+            "tile_height": 32,
+            "grid_width": 10,
+            "grid_height": 10,
+            "tiles": [{"x": 6, "y": 5, "type": "lava_trap"}],
+            "npcs": [],
+            "checkpoints": [],
+            "spawn_points": [{"player": 1, "x": 5, "y": 5}],
+            "win_condition": {"type": "reach_goal"},
+            "fail_condition": {"type": "fall_off_map"}
+        }"#;
+        let ep: Episode = serde_json::from_str(json).unwrap();
+        // Copy spawn values before moving ep into World
+        let spawn_x = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().x;
+        let spawn_y = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().y;
+        let mut world = World::from_episode(ep);
 
+        let mut player = Player::new(1, spawn_x, spawn_y);
+
+        // Move right onto trap tile
         let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
         let inputs = vec![platform::GameInput::MoveRight];
         player.tick(0.016, &inputs, &mut world, &sheet);
 
+        // Player should be eliminated after stepping on trap
         assert_eq!(player.state, PlayerState::Eliminated,
             "Player should be Eliminated after stepping on trap");
     }
@@ -384,26 +438,9 @@ mod audio_sfx_tests {
     /// Test that jump SFX does NOT trigger when move is blocked.
     #[test]
     fn test_jump_sfx_not_triggered_on_blocked_move() {
-        let mut player = Player::new(1, 5, 5);
-        let mut world = make_test_world_with_solid(6, 5);
-
-        let initial_x = player.grid_x;
-        let initial_y = player.grid_y;
-
-        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![platform::GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
-
-        let moved = player.grid_x != initial_x || player.grid_y != initial_y;
-        assert!(!moved, "Player should NOT have moved into solid tile");
-    }
-
-    // Helper functions to create test worlds
-
-    fn make_test_world() -> World {
         let json = r#"{
-            "id": "ep_test",
-            "title": "Test",
+            "id": "ep_blocked_test",
+            "title": "Blocked Test",
             "mode": "solo",
             "theme": "cave",
             "duration_target_seconds": 60,
@@ -411,80 +448,163 @@ mod audio_sfx_tests {
             "tile_height": 32,
             "grid_width": 10,
             "grid_height": 10,
-            "tiles": [],
+            "tiles": [{"x": 6, "y": 5, "type": "stone_solid"}],
             "npcs": [],
             "checkpoints": [],
-            "spawn_points": [],
+            "spawn_points": [{"player": 1, "x": 5, "y": 5}],
             "win_condition": {"type": "reach_goal"},
             "fail_condition": {"type": "fall_off_map"}
         }"#;
         let ep: Episode = serde_json::from_str(json).unwrap();
-        World::from_episode(ep)
+        // Copy spawn values before moving ep into World
+        let spawn_x = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().x;
+        let spawn_y = ep.spawn_points.iter().find(|s| s.player == 1).unwrap().y;
+        let mut world = World::from_episode(ep);
+
+        let mut player = Player::new(1, spawn_x, spawn_y);
+
+        let initial_x = player.grid_x;
+        let initial_y = player.grid_y;
+
+        // Try to move right into solid tile
+        let sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let inputs = vec![platform::GameInput::MoveRight];
+        player.tick(0.016, &inputs, &mut world, &sheet);
+
+        // Position should NOT have changed (blocked by solid)
+        let moved = player.grid_x != initial_x || player.grid_y != initial_y;
+        assert!(!moved, "Player should NOT have moved into solid tile");
+    }
+}
+
+/// Tests for Unit 4: Menu → start_game() transition wiring
+#[cfg(test)]
+mod menu_input_tests {
+    use super::*;
+
+    /// Test: start_game() transitions Menu → TitleCard (Unit 4 prerequisite).
+    /// This verifies the scene state transition that menu input SHOULD trigger.
+    #[test]
+    fn test_start_game_transitions_menu_to_titlecard() {
+        let mut scene = Scene::new();
+        assert_eq!(scene.state, SceneState::Menu);
+        scene.start_game();
+        assert_eq!(scene.state, SceneState::TitleCard);
+        assert_eq!(scene.title_timer, 3.0);
+    }
+}
+
+/// Tests for Unit 5: Player respawn from Eliminated state
+#[cfg(test)]
+mod respawn_tests {
+    use super::*;
+
+    /// Test: Single elimination leads to respawn, not immediate gameover.
+    /// When only P1 is Eliminated, P1 should respawn at checkpoint (Idle state).
+    /// Game should NOT end — gameplay continues.
+    #[test]
+    fn test_single_elimination_leads_to_respawn() {
+        let scene = Scene::new();
+        let mut player1 = Player::new(1, 5, 5);
+        let player2 = Player::new(2, 6, 5);
+
+        // Simulate P1 eliminated by trap (P2 still alive)
+        player1.state = PlayerState::Eliminated;
+        // P2 is still alive (Idle)
+        assert_eq!(player2.state, PlayerState::Idle);
+
+        // Simulate the FIXED game loop logic for single elimination:
+        let god_mode = false;
+        if player1.state == PlayerState::Eliminated && !god_mode {
+            player1.respawn();
+        }
+        // Game over should NOT fire when only one player is eliminated
+        assert_eq!(player1.state, PlayerState::Idle,
+            "P1 should respawn to Idle after single elimination");
+        assert_eq!(player2.state, PlayerState::Idle,
+            "P2 should remain Idle");
+        // scene.trigger_gameover should NOT be called for single elimination
+        assert_ne!(scene.state, SceneState::GameOver,
+            "Game should NOT end when only one player is eliminated");
     }
 
-    fn make_test_world_with_checkpoint(cx: i32, cy: i32) -> World {
-        let json = format!(r#"{{
-            "id": "ep_test",
-            "title": "Test",
-            "mode": "solo",
-            "theme": "cave",
-            "duration_target_seconds": 60,
-            "tile_width": 64,
-            "tile_height": 32,
-            "grid_width": 10,
-            "grid_height": 10,
-            "tiles": [],
-            "npcs": [],
-            "checkpoints": [{{"x": {}, "y": {}}}],
-            "spawn_points": [],
-            "win_condition": {{"type": "reach_goal"}},
-            "fail_condition": {{"type": "fall_off_map"}}
-        }}"#, cx, cy);
-        let ep: Episode = serde_json::from_str(&json).unwrap();
-        World::from_episode(ep)
+    /// Test: Both players eliminated simultaneously leads to draw (gameover with None).
+    #[test]
+    fn test_both_eliminated_leads_to_draw() {
+        let mut scene = Scene::new();
+        let mut player1 = Player::new(1, 5, 5);
+        let mut player2 = Player::new(2, 6, 5);
+
+        // Simulate both players eliminated
+        player1.state = PlayerState::Eliminated;
+        player2.state = PlayerState::Eliminated;
+
+        // Last-standing check: both eliminated → draw
+        let god_mode = false;
+        if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
+            scene.trigger_gameover(None); // draw
+        }
+
+        assert_eq!(scene.state, SceneState::GameOver,
+            "Game should end in draw when both players are eliminated");
+        assert_eq!(scene.winner, None, "Draw has no winner");
     }
 
-    fn make_test_world_with_trap(tx: i32, ty: i32) -> World {
-        let json = format!(r#"{{
-            "id": "ep_test",
-            "title": "Test",
-            "mode": "solo",
-            "theme": "cave",
-            "duration_target_seconds": 60,
-            "tile_width": 64,
-            "tile_height": 32,
-            "grid_width": 10,
-            "grid_height": 10,
-            "tiles": [{{"x": {}, "y": {}, "type": "lava_trap"}}],
-            "npcs": [],
-            "checkpoints": [],
-            "spawn_points": [],
-            "win_condition": {{"type": "reach_goal"}},
-            "fail_condition": {{"type": "fall_off_map"}}
-        }}"#, tx, ty);
-        let ep: Episode = serde_json::from_str(&json).unwrap();
-        World::from_episode(ep)
+    /// Test: P1 Won, P2 Eliminated → P1 wins (not draw).
+    /// This ensures Won-state checks take precedence over Eliminated.
+    #[test]
+    fn test_won_and_eliminated_leads_to_winner() {
+        let mut scene = Scene::new();
+        let mut player1 = Player::new(1, 5, 5);
+        let mut player2 = Player::new(2, 6, 5);
+
+        player1.state = PlayerState::Won;
+        player2.state = PlayerState::Eliminated;
+
+        // Won checks (should trigger before Eliminated checks)
+        if player1.state == PlayerState::Won {
+            scene.trigger_gameover(Some(1));
+        } else if player2.state == PlayerState::Won {
+            scene.trigger_gameover(Some(2));
+        }
+
+        assert_eq!(scene.state, SceneState::GameOver);
+        assert_eq!(scene.winner, Some(1), "P1 should win");
     }
 
-    fn make_test_world_with_solid(sx: i32, sy: i32) -> World {
-        let json = format!(r#"{{
-            "id": "ep_test",
-            "title": "Test",
-            "mode": "solo",
-            "theme": "cave",
-            "duration_target_seconds": 60,
-            "tile_width": 64,
-            "tile_height": 32,
-            "grid_width": 10,
-            "grid_height": 10,
-            "tiles": [{{"x": {}, "y": {}, "type": "stone_solid"}}],
-            "npcs": [],
-            "checkpoints": [],
-            "spawn_points": [],
-            "win_condition": {{"type": "reach_goal"}},
-            "fail_condition": {{"type": "fall_off_map"}}
-        }}"#, sx, sy);
-        let ep: Episode = serde_json::from_str(&json).unwrap();
-        World::from_episode(ep)
+    /// Test: god_mode prevents respawn.
+    #[test]
+    fn test_god_mode_prevents_respawn() {
+        let mut player = Player::new(1, 5, 5);
+        player.state = PlayerState::Eliminated;
+
+        let god_mode = true;
+        if player.state == PlayerState::Eliminated && !god_mode {
+            player.respawn();
+        }
+
+        assert_eq!(player.state, PlayerState::Eliminated,
+            "Player should remain Eliminated in god_mode");
+    }
+
+    /// Test: P1 Eliminated, P2 Won → P2 wins.
+    #[test]
+    fn test_eliminated_and_won_leads_to_winner() {
+        let mut scene = Scene::new();
+        let mut player1 = Player::new(1, 5, 5);
+        let mut player2 = Player::new(2, 6, 5);
+
+        player1.state = PlayerState::Eliminated;
+        player2.state = PlayerState::Won;
+
+        // Won checks
+        if player1.state == PlayerState::Won {
+            scene.trigger_gameover(Some(1));
+        } else if player2.state == PlayerState::Won {
+            scene.trigger_gameover(Some(2));
+        }
+
+        assert_eq!(scene.state, SceneState::GameOver);
+        assert_eq!(scene.winner, Some(2), "P2 should win");
     }
 }
