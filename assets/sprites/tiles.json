@@ -1,0 +1,10 @@
+{
+  "meta": { "image": "tiles.png", "tile_w": 64, "tile_h": 32 },
+  "frames": {
+    "grass_passable": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "grass_solid":    { "x": 64, "y": 0, "w": 64, "h": 32 },
+    "lava_trap":      { "x": 128, "y": 0, "w": 64, "h": 32 },
+    "goal_tile":      { "x": 192, "y": 0, "w": 64, "h": 32 }
+  },
+  "animations": {}
+}

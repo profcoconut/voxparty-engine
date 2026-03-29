@@ -1,0 +1,17 @@
+{
+  "meta": { "image": "characters.png", "tile_w": 64, "tile_h": 64 },
+  "frames": {
+    "player1_idle": { "x": 0, "y": 0, "w": 64, "h": 64 },
+    "player1_run0":  { "x": 64, "y": 0, "w": 64, "h": 64 },
+    "player1_run1":  { "x": 128, "y": 0, "w": 64, "h": 64 },
+    "player2_idle": { "x": 0, "y": 64, "w": 64, "h": 64 },
+    "player2_run0":  { "x": 64, "y": 64, "w": 64, "h": 64 },
+    "player2_run1":  { "x": 128, "y": 64, "w": 64, "h": 64 }
+  },
+  "animations": {
+    "idle_p1": { "frames": ["player1_idle"], "fps": 2 },
+    "run_p1":  { "frames": ["player1_run0", "player1_run1"], "fps": 8 },
+    "idle_p2": { "frames": ["player2_idle"], "fps": 2 },
+    "run_p2":  { "frames": ["player2_run0", "player2_run1"], "fps": 8 }
+  }
+}
