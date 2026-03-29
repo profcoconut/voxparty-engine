@@ -1,5 +1,6 @@
 use super::episode::Episode;
 use crate::core::depth_key;
+use crate::core::collision::WorldAccess;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TileType {
@@ -122,4 +123,10 @@ impl World {
         }
         result
     }
+}
+
+impl WorldAccess for World {
+    fn grid_w(&self) -> i32 { self.grid_w }
+    fn grid_h(&self) -> i32 { self.grid_h }
+    fn is_solid(&self, x: i32, y: i32) -> bool { self.is_solid(x, y) }
 }

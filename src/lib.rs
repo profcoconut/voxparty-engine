@@ -9,12 +9,33 @@ use game::{Episode, Player, PlayerState, Npc, World};
 use game::input::gamepad_to_inputs;
 use assets::loader;
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    log::info!("VoxParty starting");
+    inner_run(1280, 720);
+}
 
-    let mut plat = Platform::new("VoxParty", 1280, 720);
-    let mut touch = TouchHandler::new(1280, 720);
+/// C FFI entry point — called from iOS/Android native code.
+/// Exports as `voxparty_run` for dlopen/FFI usage.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub fn run() {
+    // On mobile, use screen dimensions from the OS
+    inner_run(1280, 720); // TODO: get actual screen size
+}
+
+/// For Android native activity glue
+#[no_mangle]
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub extern "C" fn native_main() {
+    inner_run(1280, 720);
+}
+
+fn inner_run(screen_w: u32, screen_h: u32) {
+    let _ = env_logger::try_init(); // don't panic on re-init
+
+    log::info!("VoxParty starting ({}x{})", screen_w, screen_h);
+
+    let mut plat = Platform::new("VoxParty", screen_w, screen_h);
+    let mut touch = TouchHandler::new(screen_w, screen_h);
     let mut audio = AudioManager::new();
 
     // Load sprite textures (ignore errors if files missing)
@@ -28,7 +49,7 @@ pub fn run() {
     // Sprite sheets
     let tiles_sheet = SpriteSheet::from_json(&loader::load_sprite_sheet("tiles"));
     let chars_sheet = SpriteSheet::from_json(&loader::load_sprite_sheet("characters"));
-    let _ = &tiles_sheet; // suppress unused warning
+    let _ = &tiles_sheet;
 
     // Players
     let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1).unwrap();
@@ -44,7 +65,7 @@ pub fn run() {
         .collect();
 
     // Camera
-    let mut camera = Camera::new(1280, 720, episode.grid_width, episode.grid_height);
+    let mut camera = Camera::new(screen_w, screen_h, episode.grid_width, episode.grid_height);
 
     // Scene
     let mut scene = Scene::new();
