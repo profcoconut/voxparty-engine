@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file.
   triggered via Bevy observers. `BevyHapticManager` wraps platform haptic state as a
   `NonSend` resource. iOS: Core Haptics FFI via `objc2_core_haptics`. Android/desktop:
   no-op stub. Graceful degradation when haptics unavailable.
-- **Scene State Machine → Bevy State (Phase 6):** `GameStateSignal` (`Arc<Mutex<GameState>`)
+- **iOS Hello World Demo:** Minimal SwiftUI app (iOS 17, iPhone Simulator). XcodeGen-generated project (`project.yml`), interactive "Hello, World!" with tap counter, visual debug overlay showing live FPS (CADisplayLink), frame count, view depth, and device name via `utsname`.
   bridging SDL2 game loop and Bevy State API. `SceneData` resource with per-state timers.
   `TitleCardTimer` (3s), `GameOverTimer` (5s), `VictoryTimer` (10s) auto-transition via
   Bevy `Timer` resources. Transition functions: `go_to_episode_select`, `go_to_titlecard`,
