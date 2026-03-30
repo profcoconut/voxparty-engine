@@ -1,0 +1,24 @@
+{
+  "sprint": 1,
+  "status": "complete",
+  "goal": "Minimal playable Bevy isometric pixel game POC — Bevy app, isometric grid, player movement, debug overlay",
+  "items": [
+    "bevy-app-scaffold-pixel-window",
+    "isometric-grid-rendering",
+    "player-entity-grid-movement",
+    "camera-follow-debug-overlay",
+    "smoke-test-cargo-build"
+  ],
+  "completed": [
+    "bevy-app-scaffold-pixel-window",
+    "isometric-grid-rendering",
+    "player-entity-grid-movement",
+    "camera-follow-debug-overlay",
+    "smoke-test-cargo-build"
+  ],
+  "skills_required": ["Skill(\"compound-engineering:ce-plan\")", "Skill(\"investigate\")", "Skill(\"simplify\")", "Skill(\"review\")", "Skill(\"retro\")", "Skill(\"compound-engineering:ce-compound\")"],
+  "skills_completed": ["Skill(\"compound-engineering:ce-plan\")", "Skill(\"investigate\")", "Skill(\"simplify\")", "Skill(\"review\")", "Skill(\"retro\")", "Skill(\"compound-engineering:ce-compound\")"],
+  "started_at": "2026-03-30T16:00:00Z",
+  "ended_at": "2026-03-30T19:02:00Z",
+  "plan": "docs/plans/2026-03-30-001-feat-bevy-poc-plan.md"
+}
