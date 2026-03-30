@@ -1,0 +1,12 @@
+UNIT_1 complete: Bevy app scaffold with pixel-perfect 640x360 window
+UNIT_2 complete: Isometric grid rendering with 10x10 tiles (grass interior, wall border)
+UNIT_3 complete: Player entity with WASD/arrow movement, 0.2s cooldown, wall collision
+UNIT_4 complete: Camera follow (lerp), debug text overlay (FPS + player grid position)
+UNIT_5 complete: Smoke test + cargo build + cargo test all pass
+UNIT_1 complete: Bevy app scaffold with pixel-perfect 640x360 window
+UNIT_2 complete: Isometric grid rendering with 10x10 tiles (grass interior, wall border)
+UNIT_3 complete: Player entity with WASD/arrow movement, 0.2s cooldown, wall collision
+UNIT_4 complete: Camera follow (lerp), debug text overlay (FPS + player grid position)
+UNIT_5 complete: Smoke test binary (src/bin/poc_smoke_test.rs) — app construction verified
+
+Sprint 1 closed: 2026-03-30T19:02:00Z

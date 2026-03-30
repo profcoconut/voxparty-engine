@@ -1,0 +1,15 @@
+[package]
+name = "bevy-poc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.18"
+
+[[bin]]
+name = "poc_smoke_test"
+path = "src/bin/poc_smoke_test.rs"
+
+[lib]
+name = "bevy_poc"
+path = "src/lib.rs"
