@@ -1,7 +1,7 @@
 use super::world::World;
+use crate::core::quantize_direction;
 use crate::core::sprites::{AnimPlayer, SpriteSheet};
 use crate::core::try_move;
-use crate::platform::GameInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerState {
@@ -54,11 +54,11 @@ impl Player {
     }
 
     /// Process one frame of player update.
-    /// `inputs` — parsed directional inputs from virtual gamepad.
+    /// `jx`, `jy` — raw joystick axes (-1..1), deadzone handled internally by quantize_direction.
     /// `world` — mutable world (for traps, checkpoints).
     /// `sheet` — sprite sheet for animation.
     /// Returns an event if something significant happened (for audio/UI wiring).
-    pub fn tick(&mut self, dt: f32, inputs: &[GameInput], world: &mut World, sheet: &SpriteSheet) -> Option<PlayerEvent> {
+    pub fn tick(&mut self, dt: f32, jx: f32, jy: f32, world: &mut World, sheet: &SpriteSheet) -> Option<PlayerEvent> {
         // Cooldown countdown
         if self.move_cooldown > 0.0 {
             self.move_cooldown -= dt;
@@ -77,17 +77,8 @@ impl Player {
             return None;
         }
 
-        // Determine direction from inputs
-        let mut want_dir: Option<usize> = None;
-        for inp in inputs {
-            match inp {
-                GameInput::MoveLeft  => want_dir = Some(6), // W
-                GameInput::MoveRight => want_dir = Some(2), // E
-                GameInput::MoveUp    => want_dir = Some(0), // N
-                GameInput::MoveDown  => want_dir = Some(4), // S
-                _ => {}
-            }
-        }
+        // Determine 8-way direction directly from joystick using quantize_direction
+        let want_dir = quantize_direction(jx, jy);
 
         if let Some(dir) = want_dir {
             if let Some((new_x, new_y)) = try_move(self.grid_x, self.grid_y, dir, world) {
@@ -251,8 +242,7 @@ mod tests {
 
         // Move right to checkpoint at (6, 5)
         let sheet = SpriteSheet::from_json(&crate::assets::loader::load_sprite_sheet("characters"));
-        let inputs = vec![GameInput::MoveRight];
-        player.tick(0.016, &inputs, &mut world, &sheet);
+        player.tick(0.016, 1.0, 0.0, &mut world, &sheet);
 
         // Verify checkpoint coordinates are correct
         assert_eq!(player.checkpoint_x, 6, "checkpoint_x should be 6");
@@ -265,7 +255,7 @@ mod tests {
         p.state = PlayerState::Eliminated;
         let mut world = make_world();
         let sheet = make_sprite_sheet();
-        p.tick(0.016, &[], &mut world, &sheet);
+        p.tick(0.016, 0.0, 0.0, &mut world, &sheet);
         assert_eq!(p.state, PlayerState::Eliminated);
     }
 
@@ -275,7 +265,7 @@ mod tests {
         p.state = PlayerState::Won;
         let mut world = make_world();
         let sheet = make_sprite_sheet();
-        p.tick(0.016, &[], &mut world, &sheet);
+        p.tick(0.016, 0.0, 0.0, &mut world, &sheet);
         assert_eq!(p.state, PlayerState::Won);
     }
 
@@ -285,7 +275,7 @@ mod tests {
         p.move_cooldown = 0.1;
         let mut world = make_world();
         let sheet = make_sprite_sheet();
-        p.tick(0.016, &[GameInput::MoveRight], &mut world, &sheet);
+        p.tick(0.016, 1.0, 0.0, &mut world, &sheet);
         assert_eq!(p.grid_x, 5, "player should not move while in cooldown");
     }
 
@@ -295,7 +285,7 @@ mod tests {
         p.state = PlayerState::Idle;
         let mut world = make_world();
         let sheet = make_sprite_sheet();
-        p.tick(0.016, &[], &mut world, &sheet);
+        p.tick(0.016, 0.0, 0.0, &mut world, &sheet);
         assert_eq!(p.state, PlayerState::Idle);
     }
 
@@ -319,7 +309,7 @@ mod tests {
         p.move_cooldown = 0.1;
         let mut world = make_world();
         let sheet = make_sprite_sheet();
-        p.tick(0.016, &[], &mut world, &sheet);
+        p.tick(0.016, 0.0, 0.0, &mut world, &sheet);
         // After one tick at dt=0.016, cooldown should be ~0.084
         assert!(p.move_cooldown < 0.1);
         assert!(p.move_cooldown > 0.0);

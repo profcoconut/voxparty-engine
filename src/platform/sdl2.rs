@@ -18,6 +18,8 @@ pub struct Platform {
     pub texture_creator: sdl2::render::TextureCreator<WindowContext>,
     pub sprites: HashMap<String, RawSprite>,
     pub target_fps: u32,
+    pub screen_width: u32,
+    pub screen_height: u32,
     sdl: sdl2::Sdl,
 }
 
@@ -51,6 +53,8 @@ impl Platform {
             texture_creator,
             sprites: HashMap::new(),
             target_fps: 60,
+            screen_width: width,
+            screen_height: height,
             sdl,
         }
     }

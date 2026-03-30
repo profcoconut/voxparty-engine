@@ -16,6 +16,8 @@ pub struct World {
     pub grid_h: i32,
     /// Flat array: tile_types[y * grid_w + x] = TileType
     tile_types: Vec<TileType>,
+    /// Original tile type strings from JSON (e.g., "grass_passable", "stone_solid")
+    tile_strings: Vec<String>,
     /// Trap cooldown in frames (0 = ready)
     trap_cooldowns: Vec<u32>,
     /// (x, y, reached)
@@ -27,6 +29,7 @@ impl World {
     pub fn from_episode(episode: Episode) -> Self {
         let grid_size = (episode.grid_width * episode.grid_height) as usize;
         let mut tile_types = vec![TileType::Passable; grid_size];
+        let mut tile_strings = vec![String::new(); grid_size];
         let trap_cooldowns = vec![0u32; grid_size];
         let mut checkpoints = Vec::new();
 
@@ -35,6 +38,7 @@ impl World {
                 continue;
             }
             let idx = (tile.y * episode.grid_width + tile.x) as usize;
+            tile_strings[idx] = tile.tile_type.clone();
             tile_types[idx] = match tile.tile_type.as_str() {
                 t if t.ends_with("_solid") => TileType::Solid,
                 t if t.ends_with("_trap") => TileType::Trap,
@@ -52,6 +56,7 @@ impl World {
             grid_w: episode.grid_width,
             grid_h: episode.grid_height,
             tile_types,
+            tile_strings,
             trap_cooldowns,
             checkpoints,
             episode,
@@ -64,6 +69,16 @@ impl World {
         }
         let idx = (y * self.grid_w + x) as usize;
         self.tile_types.get(idx).copied().unwrap_or(TileType::Passable)
+    }
+
+    /// Get the original tile type string from the episode JSON (e.g., "grass_passable", "stone_solid").
+    /// Returns empty string for out-of-bounds or unset tiles.
+    pub fn get_tile_string(&self, x: i32, y: i32) -> String {
+        if x < 0 || y < 0 || x >= self.grid_w || y >= self.grid_h {
+            return String::new();
+        }
+        let idx = (y * self.grid_w + x) as usize;
+        self.tile_strings.get(idx).cloned().unwrap_or_default()
     }
 
     pub fn is_solid(&self, x: i32, y: i32) -> bool {

@@ -42,18 +42,45 @@ pub const DIRECTIONS: [(i32, i32); 8] = [
 
 /// Quantize an analog joystick (-1..1 each axis) to an 8-way direction index.
 /// Returns None if the input is within the deadzone.
+///
+/// Joystick axes: jx positive = right, jy positive = down (screen coords).
+/// Maps to DIRECTIONS index where: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
+///
+/// In isometric projection:
+///   Grid N (0,-1) appears as screen up-left (jx<0, jy<0)
+///   Grid E (1,0) appears as screen down-right (jx>0, jy>0 roughly)
+///   Grid NE (1,-1) appears as screen right (jx>0, jy≈0)
 pub fn quantize_direction(jx: f32, jy: f32) -> Option<usize> {
     let deadzone = 0.3;
     if jx.abs() < deadzone && jy.abs() < deadzone {
         return None;
     }
-    // atan2 gives angle from positive X axis, counterclockwise
-    // We want angle from positive Y axis (screen down), clockwise
-    let angle = jy.atan2(jx); // radians
-    // Map to 0-7 sector: sector 0 = N, sectors clockwise
-    let sector = ((angle + std::f32::consts::PI) / (std::f32::consts::TAU) * 8.0) as i32;
-    let dir = ((sector % 8) + 8) % 8;
-    Some(dir as usize)
+
+    // Use jy.atan2(jx) - angle from positive X axis, counterclockwise
+    // This gives: E=0, NE=π/4, N=π/2, NW=3π/4, W=π, SW=-3π/4, S=-π/2, SE=-π/4
+    let angle = jy.atan2(jx);
+
+    // Normalize to [0, 2π) and compute sector 0-7
+    let angle_pos = if angle < 0.0 { angle + std::f32::consts::TAU } else { angle };
+    let raw_sector = (angle_pos / std::f32::consts::TAU * 8.0) as i32;
+    let sector = ((raw_sector % 8) + 8) % 8;
+
+    // With jy.atan2(jx), sectors are: 0=E, 1=NE, 2=N, 3=NW, 4=W, 5=SW, 6=S, 7=SE
+    // We need: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
+    // So: sector 0→2, 1→1, 2→0, 3→7, 4→6, 5→5, 6→4, 7→3
+    // That's: (sector + 2) % 8 for sector 0-4, but different for 5,6,7
+    // Let me use a match to be explicit:
+    match sector as usize {
+        0 => Some(2),  // E
+        1 => Some(1),  // NE
+        2 => Some(0),  // N
+        3 => Some(7),  // NW
+        4 => Some(6),  // W
+        5 => Some(5),  // SW
+        6 => Some(4),  // S
+        7 => Some(3),  // SE
+        _ => None,
+    }
 }
 
 #[cfg(test)]
