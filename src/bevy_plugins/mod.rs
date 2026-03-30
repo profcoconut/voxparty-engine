@@ -21,6 +21,10 @@ pub mod player;       // PlayerComponent + movement systems
 pub mod npc;          // NpcComponent + NpcTag + dialogue/sprite systems
 pub mod particle;     // Particle ECS components + spawner + systems
 
+// ─── Phase 4: Audio ──────────────────────────────────────────────────────────
+
+pub mod audio;        // AudioManager Bevy resource + AudioEvent + playback system
+
 use bevy::prelude::*;
 
 // Re-export types for convenience
@@ -31,6 +35,7 @@ pub use player::{PlayerComponent, PlayerState, PlayerPlugin};
 pub use npc::{NpcComponent, NpcDialogueState, NpcTag, EpisodeNpcs, NpcPlugin};
 pub use particle::{Particle, ParticleType, ParticleColor, ParticleSpawner, ParticlePlugin};
 pub use world::{WorldComponent, VoxpartyWorld, WorldPlugin};
+pub use audio::{AudioEvent, AudioPlugin, audio_playback_observer};
 
 /// Combined sprite rendering plugin for Phase 2.
 /// Wires together: atlas creation, isometric camera, tile/player spawning, depth sorting.
@@ -66,5 +71,7 @@ impl Plugin for BevySpritePlugin {
             NpcPlugin::new(),
             ParticlePlugin::new(),
         ));
+        // Phase 4: Audio
+        app.add_plugins(AudioPlugin::new());
     }
 }

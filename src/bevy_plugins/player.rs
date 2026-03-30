@@ -13,6 +13,7 @@
 use bevy::prelude::*;
 use crate::core::collision::try_move;
 use crate::core::quantize_direction;
+use crate::bevy_plugins::audio::AudioEvent;
 use crate::bevy_plugins::input::{Players, GameInput, VirtualGamepad};
 use crate::bevy_plugins::sprite::GridPos;
 
@@ -102,6 +103,7 @@ fn held_to_direction(vg: &VirtualGamepad) -> Option<usize> {
 ///
 /// Runs in `PostUpdate` after input has been processed in `Update`.
 pub fn player_movement_system(
+    mut commands: Commands,
     mut player_query: Query<(Entity, &mut PlayerComponent, &mut GridPos)>,
     players: Res<Players>,
     mut world: ResMut<crate::bevy_plugins::world::VoxpartyWorld>,
@@ -157,9 +159,19 @@ pub fn player_movement_system(
                 grid_pos.x = new_x;
                 grid_pos.y = new_y;
 
+                // Audio: step sound based on tile type at new position
+                let tile_str = world.world.get_tile_string(new_x, new_y);
+                let step_name = if tile_str.is_empty() {
+                    "stone".to_string()
+                } else {
+                    tile_str
+                };
+                commands.trigger(AudioEvent::Step(step_name));
+
                 // Check traps
                 if world.world.check_trap(new_x, new_y) {
                     player.state = PlayerState::Eliminated;
+                    commands.trigger(AudioEvent::Trap);
                     continue;
                 }
 
@@ -167,11 +179,13 @@ pub fn player_movement_system(
                 if world.world.check_checkpoint(new_x, new_y) {
                     player.checkpoint_x = new_x;
                     player.checkpoint_y = new_y;
+                    commands.trigger(AudioEvent::Checkpoint);
                 }
 
                 // Check win condition
                 if world.world.check_goal(new_x, new_y) {
                     player.state = PlayerState::Won;
+                    commands.trigger(AudioEvent::Victory);
                 }
             } else {
                 // Blocked — go idle
