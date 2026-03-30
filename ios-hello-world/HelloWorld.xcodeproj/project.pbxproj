@@ -7,15 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0D0F139631D987709D91286B /* BlockInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70067AD2E2722D35E3C17C0 /* BlockInteraction.swift */; };
+		0E8CFED99DADFD1E379B7B62 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EDE918673BB2372F41CF469 /* GameViewController.swift */; };
 		3146398D1A5E775AFE7C7972 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8DE7869E0EC23FCCD9655E /* App.swift */; };
-		6054E168638588F342570CD4 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81E4B04B42101A17B62DE13 /* ContentView.swift */; };
+		330D30D4D93CE1E2F1CAA4CA /* GameScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610D96F3F8C2D2235097FCF7 /* GameScene.swift */; };
+		40A89549230C54988F3B2F9F /* GameState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8437971A78BE52445D2CE92E /* GameState.swift */; };
+		580E1D83579956C38459B9B6 /* TerrainGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BFC5B01F591FEABF8AF8A46 /* TerrainGenerator.swift */; };
+		68FB28DCC28C9EDF43C105EC /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63E5BCD2C31F593C187FD4DA /* Player.swift */; };
 		866E924A7F9CD71616FF50A7 /* DebugOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3946FBC6B419A244603691 /* DebugOverlay.swift */; };
+		8E8C5CB99FED7BD2A8E1BFF8 /* VirtualJoystick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DDDE4EC09693AD92A84439 /* VirtualJoystick.swift */; };
+		CFA3FB6C28CE0593A807725A /* IsometricMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243FC081982BEEE213802482 /* IsometricMath.swift */; };
+		DD215A6C02CCD71B10842BB3 /* Textures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 088499E928218F54CE1FFA62 /* Textures.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		088499E928218F54CE1FFA62 /* Textures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Textures.swift; sourceTree = "<group>"; };
+		0BFC5B01F591FEABF8AF8A46 /* TerrainGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerrainGenerator.swift; sourceTree = "<group>"; };
+		243FC081982BEEE213802482 /* IsometricMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsometricMath.swift; sourceTree = "<group>"; };
+		26DDDE4EC09693AD92A84439 /* VirtualJoystick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualJoystick.swift; sourceTree = "<group>"; };
 		35D466DB8920E7A52C599EBC /* HelloWorld.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HelloWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A3946FBC6B419A244603691 /* DebugOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugOverlay.swift; sourceTree = "<group>"; };
-		C81E4B04B42101A17B62DE13 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		610D96F3F8C2D2235097FCF7 /* GameScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameScene.swift; sourceTree = "<group>"; };
+		63E5BCD2C31F593C187FD4DA /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
+		8437971A78BE52445D2CE92E /* GameState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameState.swift; sourceTree = "<group>"; };
+		9EDE918673BB2372F41CF469 /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
+		C70067AD2E2722D35E3C17C0 /* BlockInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockInteraction.swift; sourceTree = "<group>"; };
 		CA8DE7869E0EC23FCCD9655E /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -32,8 +48,16 @@
 			isa = PBXGroup;
 			children = (
 				CA8DE7869E0EC23FCCD9655E /* App.swift */,
-				C81E4B04B42101A17B62DE13 /* ContentView.swift */,
+				C70067AD2E2722D35E3C17C0 /* BlockInteraction.swift */,
 				4A3946FBC6B419A244603691 /* DebugOverlay.swift */,
+				610D96F3F8C2D2235097FCF7 /* GameScene.swift */,
+				8437971A78BE52445D2CE92E /* GameState.swift */,
+				9EDE918673BB2372F41CF469 /* GameViewController.swift */,
+				243FC081982BEEE213802482 /* IsometricMath.swift */,
+				63E5BCD2C31F593C187FD4DA /* Player.swift */,
+				0BFC5B01F591FEABF8AF8A46 /* TerrainGenerator.swift */,
+				088499E928218F54CE1FFA62 /* Textures.swift */,
+				26DDDE4EC09693AD92A84439 /* VirtualJoystick.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -105,8 +129,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				3146398D1A5E775AFE7C7972 /* App.swift in Sources */,
-				6054E168638588F342570CD4 /* ContentView.swift in Sources */,
+				0D0F139631D987709D91286B /* BlockInteraction.swift in Sources */,
 				866E924A7F9CD71616FF50A7 /* DebugOverlay.swift in Sources */,
+				330D30D4D93CE1E2F1CAA4CA /* GameScene.swift in Sources */,
+				40A89549230C54988F3B2F9F /* GameState.swift in Sources */,
+				0E8CFED99DADFD1E379B7B62 /* GameViewController.swift in Sources */,
+				CFA3FB6C28CE0593A807725A /* IsometricMath.swift in Sources */,
+				68FB28DCC28C9EDF43C105EC /* Player.swift in Sources */,
+				580E1D83579956C38459B9B6 /* TerrainGenerator.swift in Sources */,
+				DD215A6C02CCD71B10842BB3 /* Textures.swift in Sources */,
+				8E8C5CB99FED7BD2A8E1BFF8 /* VirtualJoystick.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

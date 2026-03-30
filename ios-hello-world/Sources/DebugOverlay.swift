@@ -1,91 +1,68 @@
-import SwiftUI
-import QuartzCore
+import SpriteKit
 
-// Invisible UIKit view that uses CADisplayLink to tick every frame
-struct FrameCounter: UIViewRepresentable {
-    @Binding var frameCount: Int
+class DebugOverlay: SKNode {
+    let fpsLabel = SKLabelNode(fontNamed: "Courier")
+    let gridLabel = SKLabelNode(fontNamed: "Courier")
+    let blockLabel = SKLabelNode(fontNamed: "Courier")
+    let blockTypeLabel = SKLabelNode(fontNamed: "Courier")
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        let displayLink = CADisplayLink(target: context.coordinator, selector: #selector(Coordinator.tick))
-        displayLink.add(to: .main, forMode: .common)
-        context.coordinator.displayLink = displayLink
-        return view
+    private var frameCount = 0
+    private var lastTime: TimeInterval = 0
+    private var currentFPS = 0
+
+    override init() {
+        super.init()
+        setup()
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(frameCount: $frameCount)
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    class Coordinator: ObservableObject {
-        var displayLink: CADisplayLink?
-        @Binding var frameCount: Int
+    private func setup() {
+        zPosition = 9999
 
-        init(frameCount: Binding<Int>) {
-            _frameCount = frameCount
+        let labels = [fpsLabel, gridLabel, blockLabel, blockTypeLabel]
+        for (i, label) in labels.enumerated() {
+            label.fontSize = 14
+            label.fontColor = .white
+            label.horizontalAlignmentMode = .left
+            label.position = CGPoint(x: 0, y: -CGFloat(i) * 20)
+            label.zPosition = 9999
+            addChild(label)
         }
 
-        @objc func tick() {
-            frameCount += 1
-        }
+        let bg = SKShapeNode(rectOf: CGSize(width: 200, height: 90), cornerRadius: 6)
+        bg.fillColor = UIColor.black.withAlphaComponent(0.6)
+        bg.strokeColor = .clear
+        bg.zPosition = -1
+        bg.position = CGPoint(x: 100, y: -35)
+        addChild(bg)
 
-        deinit {
-            displayLink?.invalidate()
-        }
+        fpsLabel.text = "FPS: --"
+        gridLabel.text = "Grid: (0, 0)"
+        blockLabel.text = "Blocks: 0"
+        blockTypeLabel.text = "Selected: Grass"
     }
-}
 
-struct DebugOverlay: View {
-    @State private var frameCount: Int = 0
-    @State private var fps: Double = 0
+    func update(currentTime: TimeInterval, player: Player?, gameState: GameState?, selectedBlock: TileType) {
+        frameCount += 1
 
-    let deviceName: String = {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let machineMirror = Mirror(reflecting: systemInfo.machine)
-        let identifier = machineMirror.children.reduce("") { identifier, element in
-            guard let value = element.value as? Int8, value != 0 else { return identifier }
-            return identifier + String(UnicodeScalar(UInt8(value)))
-        }
-        return identifier
-    }()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("FPS: \(String(format: "%.0f", fps))")
-                .font(.system(size: 12, design: .monospaced))
-            Text("Frame: \(frameCount)")
-                .font(.system(size: 12, design: .monospaced))
-            Text("Depth: 1")
-                .font(.system(size: 12, design: .monospaced))
-            Text("Device: \(deviceName)")
-                .font(.system(size: 10, design: .monospaced))
-                .lineLimit(1)
-        }
-        .padding(8)
-        .background(Color.black.opacity(0.6))
-        .foregroundColor(.white)
-        .cornerRadius(6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(8)
-        .allowsHitTesting(false)
-        .overlay {
-            FrameCounter(frameCount: $frameCount)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-        }
-        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
-            fps = Double(frameCount)
+        if currentTime - lastTime >= 1.0 {
+            currentFPS = frameCount
             frameCount = 0
+            lastTime = currentTime
+            fpsLabel.text = "FPS: \(currentFPS)"
         }
-    }
-}
 
-#Preview {
-    ZStack {
-        Color.gray
-        DebugOverlay()
+        if let p = player {
+            gridLabel.text = String(format: "Grid: (%d, %d)", p.gridX, p.gridY)
+        }
+
+        if let state = gameState {
+            blockLabel.text = "Blocks: \(state.blockCount)"
+        }
+
+        blockTypeLabel.text = "Selected: \(selectedBlock)"
     }
 }
