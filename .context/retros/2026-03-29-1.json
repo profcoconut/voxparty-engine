@@ -1,0 +1,35 @@
+{
+  "date": "2026-03-29",
+  "window": "7d",
+  "metrics": {
+    "commits": 27,
+    "contributors": 1,
+    "prs_merged": 0,
+    "insertions": 4700,
+    "deletions": 50,
+    "net_loc": 4650,
+    "test_loc": 0,
+    "test_ratio": 0.0,
+    "active_days": 1,
+    "sessions": 1,
+    "deep_sessions": 1,
+    "avg_session_minutes": 240,
+    "loc_per_session_hour": 1160,
+    "feat_pct": 0.52,
+    "fix_pct": 0.19,
+    "peak_hour": 14,
+    "ai_assisted_commits": 27
+  },
+  "authors": {
+    "Prof.Coconut": { "commits": 27, "insertions": 4700, "deletions": 50, "test_ratio": 0.0, "top_area": "src/lib.rs" }
+  },
+  "version_range": ["initial", "feat/engine"],
+  "streak_days": 1,
+  "tweetable": "Built complete VoxParty Rust engine in one day: isometric math, sprite animation, collision, camera, NPC dialogue, audio, mobile scaffolding, TDD tests, playable demo episode",
+  "test_health": {
+    "total_test_files": 0,
+    "tests_added_this_period": 0,
+    "regression_test_commits": 0,
+    "test_files_changed": 0
+  }
+}

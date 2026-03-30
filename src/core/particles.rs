@@ -134,13 +134,25 @@ impl Particle {
     }
 }
 
+/// sprint-22: Maximum number of active particles (200 cap for mobile performance).
+pub const MAX_ACTIVE_PARTICLES: usize = 200;
+
 /// Maximum number of active particles to prevent mobile performance issues.
-const MAX_PARTICLES: usize = 50;
+const MAX_PARTICLES: usize = MAX_ACTIVE_PARTICLES;
+
+// sprint-20: Tuned particle counts for better visual impact
+/// Number of checkpoint sparkle particles (increased from 8 to 11 for bigger burst)
+const CHECKPOINT_SPARKLE_COUNT: usize = 11;
+/// Number of trap flash ring particles (increased from 16 to 20 for bigger burst)
+const TRAP_FLASH_COUNT: usize = 20;
+/// Number of movement dust particles
+const MOVEMENT_DUST_COUNT: usize = 4;
 
 /// Particle system — manages spawn, tick, and draw of all active particles.
 #[derive(Debug)]
 pub struct ParticleSystem {
-    particles: Vec<Particle>,
+    /// pub(crate) for testing — use spawn() in production.
+    pub(crate) particles: Vec<Particle>,
 }
 
 impl ParticleSystem {
@@ -161,7 +173,7 @@ impl ParticleSystem {
         match ptype {
             ParticleType::CheckpointSparkle => {
                 // Burst of ~8 golden sparkles rising upward
-                for i in 0..8 {
+                for i in 0..CHECKPOINT_SPARKLE_COUNT {
                     // Check cap before each particle
                     if self.particles.len() >= MAX_PARTICLES {
                         break;
@@ -188,11 +200,33 @@ impl ParticleSystem {
                         particle_type: ptype,
                     });
                 }
+                // sprint-20: Add 3 extra golden sparkles for bigger burst
+                for i in 0..3 {
+                    if self.particles.len() >= MAX_PARTICLES {
+                        break;
+                    }
+                    let angle = -std::f32::consts::FRAC_PI_2 + (i as f32 - 1.0) * 0.4;
+                    let speed = 80.0 + i as f32 * 15.0;
+                    let vx = angle.cos() * speed;
+                    let vy = angle.sin() * speed;
+                    let lifetime = 0.6 + i as f32 * 0.1;
+                    self.particles.push(Particle {
+                        x,
+                        y,
+                        vx,
+                        vy,
+                        lifetime,
+                        max_lifetime: lifetime,
+                        color: ParticleColor::golden(),
+                        size: 4,
+                        particle_type: ptype,
+                    });
+                }
             }
             ParticleType::TrapFlash => {
                 // Single large ring that expands outward
                 // We'll use multiple particles in a ring pattern
-                let num_particles = 16;
+                let num_particles = TRAP_FLASH_COUNT;
                 for i in 0..num_particles {
                     // Check cap before each particle
                     if self.particles.len() >= MAX_PARTICLES {
@@ -218,7 +252,7 @@ impl ParticleSystem {
             }
             ParticleType::MovementDust => {
                 // Small puff of 3-4 grey particles at feet
-                for i in 0..4 {
+                for i in 0..MOVEMENT_DUST_COUNT {
                     // Check cap before each particle
                     if self.particles.len() >= MAX_PARTICLES {
                         break;
@@ -245,11 +279,20 @@ impl ParticleSystem {
     }
 
     /// Advance all particles by `dt` seconds. Removes dead particles.
+    /// sprint-22: If particles exceed MAX_ACTIVE_PARTICLES, cull oldest 50%.
     pub fn tick(&mut self, dt: f32) {
         for p in &mut self.particles {
             p.tick(dt);
         }
         self.particles.retain(|p| p.is_alive());
+
+        // sprint-22: Enforce particle budget — cull oldest 50% if over cap
+        if self.particles.len() > MAX_ACTIVE_PARTICLES {
+            let keep_count = MAX_ACTIVE_PARTICLES;
+            // Split off the newest `keep_count` particles (they're at the end)
+            let split_idx = self.particles.len() - keep_count;
+            self.particles = self.particles.split_off(split_idx);
+        }
     }
 
     /// Draw all particles onto the canvas at their screen position.
@@ -266,6 +309,16 @@ impl ParticleSystem {
     /// Returns the number of active particles.
     pub fn len(&self) -> usize {
         self.particles.len()
+    }
+
+    /// sprint-22: Alias for len() — current active particle count.
+    pub fn particle_count(&self) -> usize {
+        self.particles.len()
+    }
+
+    /// sprint-22: Return (current, max) particle budget usage.
+    pub fn particle_budget_usage(&self) -> (usize, usize) {
+        (self.particles.len(), MAX_ACTIVE_PARTICLES)
     }
 
     /// Returns true if there are no active particles.
@@ -295,14 +348,16 @@ mod tests {
     fn test_spawn_checkpoint_adds_particles() {
         let mut ps = ParticleSystem::new();
         ps.spawn(100.0, 200.0, ParticleType::CheckpointSparkle);
-        assert_eq!(ps.len(), 8, "checkpoint sparkle should spawn 8 particles");
+        // sprint-20: Checkpoint sparkle now spawns 14 particles (11 base + 3 extra burst)
+        assert_eq!(ps.len(), 14, "checkpoint sparkle should spawn 14 particles");
     }
 
     #[test]
     fn test_spawn_trap_flash_adds_particles() {
         let mut ps = ParticleSystem::new();
         ps.spawn(100.0, 200.0, ParticleType::TrapFlash);
-        assert_eq!(ps.len(), 16, "trap flash should spawn 16 particles");
+        // sprint-20: Trap flash now spawns 20 particles (increased from 16)
+        assert_eq!(ps.len(), 20, "trap flash should spawn 20 particles");
     }
 
     #[test]
@@ -320,6 +375,39 @@ mod tests {
         // Tick with dt larger than particle lifetime
         ps.tick(1.0);
         assert!(ps.is_empty());
+    }
+
+    // sprint-22: Particle budget tests
+    #[test]
+    fn test_particle_budget_culls_excess() {
+        let mut ps = ParticleSystem::new();
+        // Directly push 300 particles (bypassing spawn cap) to test culling
+        for i in 0..300 {
+            ps.particles.push(Particle {
+                x: 100.0 + i as f32,
+                y: 200.0,
+                vx: 0.0,
+                vy: 0.0,
+                lifetime: 10.0,
+                max_lifetime: 10.0,
+                color: ParticleColor::grey(),
+                size: 3,
+                particle_type: ParticleType::MovementDust,
+            });
+        }
+        assert_eq!(ps.len(), 300, "should have 300 particles before tick");
+        // After tick, budget should be enforced — cull to MAX_ACTIVE_PARTICLES (200)
+        ps.tick(0.0);
+        assert_eq!(ps.len(), MAX_ACTIVE_PARTICLES, "should cull to {}", MAX_ACTIVE_PARTICLES);
+    }
+
+    #[test]
+    fn test_particle_budget_usage_reports_correctly() {
+        let mut ps = ParticleSystem::new();
+        ps.spawn(100.0, 200.0, ParticleType::MovementDust);
+        let (current, max) = ps.particle_budget_usage();
+        assert_eq!(current, 4);
+        assert_eq!(max, MAX_ACTIVE_PARTICLES);
     }
 
     #[test]

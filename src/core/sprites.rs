@@ -1,4 +1,13 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// sprint-22: Total texture bytes allocated across all sprite sheets.
+/// Incremented when a SpriteSheet is created (from frame extents).
+static TOTAL_TEXTURE_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// sprint-22: Maximum texture budget before warning (32 MB).
+const TEXTURE_BUDGET_MB: usize = 32;
+const TEXTURE_BUDGET_BYTES: usize = TEXTURE_BUDGET_MB * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct SpriteFrame {
@@ -22,6 +31,8 @@ pub struct SpriteSheet {
     pub frames: HashMap<String, SpriteFrame>,
     /// Map from animation name → animation definition
     pub animations: HashMap<String, SpriteAnimation>,
+    /// sprint-22: Texture bytes for this sprite sheet (computed from frame bounding box).
+    pub bytes: usize,
 }
 
 impl SpriteSheet {
@@ -32,6 +43,9 @@ impl SpriteSheet {
     ///   "frames": { "name": { "x": 0, "y": 0, "w": 64, "h": 64 }, ... },
     ///   "animations": { "anim_name": { "frames": ["frame1", "frame2"], "fps": 8 }, ... }
     /// }
+    ///
+    /// sprint-22: Computes texture bytes from the bounding box of all frames
+    /// (w_max * h_max * 4 RGBA) and adds to TOTAL_TEXTURE_BYTES.
     pub fn from_json(json_str: &str) -> Self {
         #[derive(serde::Deserialize)]
         struct Meta {
@@ -85,12 +99,53 @@ impl SpriteSheet {
             );
         }
 
+        // sprint-22: Compute texture bytes from frame bounding box
+        let mut max_w = 0u32;
+        let mut max_h = 0u32;
+        for frame in frames.values() {
+            let frame_max_x = frame.x.saturating_add(frame.w);
+            let frame_max_y = frame.y.saturating_add(frame.h);
+            if frame_max_x > max_w { max_w = frame_max_x; }
+            if frame_max_y > max_h { max_h = frame_max_y; }
+        }
+        let bytes = (max_w as usize) * (max_h as usize) * 4;
+        let prev = TOTAL_TEXTURE_BYTES.fetch_add(bytes, Ordering::SeqCst);
+        let total = prev + bytes;
+
+        // sprint-22: Warn in debug builds if texture budget exceeded
+        #[cfg(debug_assertions)]
+        if total > TEXTURE_BUDGET_BYTES {
+            eprintln!(
+                "[TEXTURE] WARNING: texture budget exceeded: {}MB / {}MB (adding {} bytes for '{}')",
+                total / (1024 * 1024),
+                TEXTURE_BUDGET_MB,
+                bytes,
+                sheet.meta.image,
+            );
+        }
+
+        log::info!(
+            "[TEXTURE] Loaded '{}': {}x{} px = {} bytes (total: {} bytes / {:.1}MB)",
+            sheet.meta.image,
+            max_w,
+            max_h,
+            bytes,
+            total,
+            total as f32 / (1024.0 * 1024.0)
+        );
+
         Self {
             name: sheet.meta.image,
             frames,
             animations,
+            bytes,
         }
     }
+}
+
+/// sprint-22: Return total texture bytes currently tracked.
+pub fn total_texture_bytes() -> usize {
+    TOTAL_TEXTURE_BYTES.load(Ordering::SeqCst)
 }
 
 /// Per-entity animation state machine.
@@ -168,4 +223,67 @@ impl AnimPlayer {
 
 impl Default for AnimPlayer {
     fn default() -> Self { Self::new() }
+}
+
+// ── Draw Call Counter ─────────────────────────────────────────────────────────
+
+/// sprint-22: Atomic counter incremented on every canvas blit (draw call).
+/// Wrapped by `plat.blit_sprite()` in platform/sdl2.rs.
+static DRAW_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// sprint-22: Increment draw call counter by 1 (called from blit_sprite).
+pub fn increment_draw_calls() {
+    DRAW_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+}
+
+/// sprint-22: Get the current draw call count for this frame.
+pub fn draw_call_count() -> usize {
+    DRAW_CALL_COUNT.load(Ordering::SeqCst)
+}
+
+/// sprint-22: Reset draw call counter to zero (called at start of each frame).
+pub fn reset_draw_calls() {
+    DRAW_CALL_COUNT.store(0, Ordering::SeqCst);
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_texture_bytes_accumulated() {
+        // Reset counter before test
+        TOTAL_TEXTURE_BYTES.store(0, Ordering::SeqCst);
+
+        // Create two sprite sheets and verify bytes accumulate
+        let tiles_json = std::fs::read_to_string("assets/sprites/tiles.json")
+            .expect("tiles.json not found");
+        let chars_json = std::fs::read_to_string("assets/sprites/characters.json")
+            .expect("characters.json not found");
+
+        let _ = SpriteSheet::from_json(&tiles_json);
+        let initial = total_texture_bytes();
+        assert!(initial > 0, "tiles sheet should contribute texture bytes");
+
+        let _ = SpriteSheet::from_json(&chars_json);
+        let after = total_texture_bytes();
+        assert!(after > initial, "second sheet should add more texture bytes");
+
+        // Reset to avoid polluting global state
+        TOTAL_TEXTURE_BYTES.store(0, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn test_draw_call_count_increments() {
+        reset_draw_calls();
+        assert_eq!(draw_call_count(), 0);
+        increment_draw_calls();
+        increment_draw_calls();
+        increment_draw_calls();
+        assert_eq!(draw_call_count(), 3);
+        reset_draw_calls();
+        assert_eq!(draw_call_count(), 0);
+    }
 }

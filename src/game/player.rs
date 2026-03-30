@@ -184,6 +184,7 @@ mod tests {
             name: "test".to_string(),
             frames: HashMap::new(),
             animations: HashMap::new(),
+            bytes: 0,
         }
     }
 

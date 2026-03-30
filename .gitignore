@@ -1,2 +1,8 @@
 .worktrees/
 target/
+
+# Runtime artifacts
+rust_out/
+screenshots/
+telemetry/
+worktree/

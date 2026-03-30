@@ -1,7 +1,7 @@
 [package]
 name = "voxparty"
-version = "0.1.0"
-edition = "2024"
+version = "0.2.0"
+edition = "2021"
 
 [lib]
 name = "voxparty"
@@ -12,6 +12,7 @@ name = "voxparty"
 path = "src/main.rs"
 
 [dependencies]
+bevy = "0.18" # Bevy game engine — https://bevyengine.org/
 sdl2 = "0.37"
 image = "0.25"
 serde = { version = "1.0", features = ["derive"] }
@@ -28,6 +29,10 @@ env_logger = "0.11"
 # Mobile also needs env_logger (try_init is a no-op without it)
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 env_logger = "0.11"
+
+# iOS Core Haptics for haptic feedback
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-core-haptics = "0.3"
 
 [profile.release]
 opt-level = 3

@@ -1,4 +1,5 @@
 use super::episode::Episode;
+use bevy::prelude::Resource;
 use crate::core::depth_key;
 use crate::core::collision::WorldAccess;
 
@@ -11,6 +12,7 @@ pub enum TileType {
     Goal,
 }
 
+#[derive(Resource, Clone, Debug)]
 pub struct World {
     pub grid_w: i32,
     pub grid_h: i32,

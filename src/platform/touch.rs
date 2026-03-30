@@ -3,6 +3,7 @@ use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 use crate::core::isom::screen_to_grid;
 
 /// Tap tracking state for a single finger.
@@ -43,7 +44,7 @@ impl FingerTracker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GameInput {
     MoveLeft,
     MoveRight,
@@ -200,11 +201,11 @@ impl TouchHandler {
         let screen_h = self.screen_height;
 
         // Bottom 200px of screen for the gamepad overlay
-        let overlay_bottom = screen_h as i32;
+        let _overlay_bottom = screen_h as i32;
         let overlay_top = (screen_h as i32 - 200).max(0);
 
         // D-pad dimensions (pixel-art style, blocky)
-        let dpad_size = 80i32;       // Total width/height of d-pad cross
+        let _dpad_size = 80i32;       // Total width/height of d-pad cross
         let dpad_arm = 24i32;        // Width of each arm
         let dpad_center = 50i32;     // Size of center square
         let dpad_total = dpad_arm * 2 + dpad_center; // 72px total (close to 80)
@@ -215,7 +216,7 @@ impl TouchHandler {
 
         // Action button position: right side of screen
         let btn_radius = 25i32;
-        let btn_x = (screen_w as i32 - 100);
+        let btn_x = screen_w as i32 - 100 ;
         let btn_y = overlay_top + 100;
 
         // Colors (semi-transparent for game visibility)

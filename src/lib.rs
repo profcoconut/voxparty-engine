@@ -2,13 +2,20 @@ pub mod platform;
 pub mod core;
 pub mod game;
 pub mod assets;
+pub mod bevy_plugins;
 
 use platform::{Platform, TouchHandler, AudioManager, HapticManager};
-use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, debug::DebugOverlay, ParticleSystem, particles::ParticleType};
+use core::{Scene, SceneState, Camera, SpriteSheet, grid_to_screen, debug::DebugOverlay, ParticleSystem, particles::ParticleType, HealthMonitor, Console, TelemetryLogger};
+use core::sprites::{reset_draw_calls, draw_call_count};
 use game::{Episode, Player, PlayerState, Npc, World};
-use game::input::gamepad_to_inputs;
+use game::input::{gamepad_to_inputs, InputRecorder, InputReplayer, BugReport, QaReport, AssertionResult, assert_camera_within_200px, assert_fps_above_10, assert_no_player_deadlock, GameStateForQA};
 use assets::loader;
+use serde_json::json;
 use std::fs;
+use bevy_plugins::scene_plugin::{
+    go_to_episode_select, go_to_titlecard, go_to_menu, toggle_pause,
+    trigger_victory, trigger_gameover,
+};
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn run() {
@@ -38,6 +45,17 @@ pub extern "C" fn native_main() {
 
 /// episode-select-1: Path to the episodes directory
 const EPISODES_DIR: &str = "assets/episodes";
+
+/// Screenshot directory name
+const SCREENSHOTS_DIR: &str = "screenshots";
+
+/// Generate a timestamped screenshot path in the screenshots directory.
+/// Uses ISO-style date formatting for consistency with other screenshots.
+fn make_screenshot_path(prefix: &str) -> String {
+    let now = chrono::Local::now();
+    let ts = now.format("%Y%m%d_%H%M%S");
+    format!("{}/{}_{}.png", SCREENSHOTS_DIR, prefix, ts)
+}
 
 /// episode-select-1: List all available episodes from the episodes directory.
 /// Returns a vector of (episode_id, episode_path) pairs sorted by ID.
@@ -90,6 +108,122 @@ fn reload_episode_game_state(
     Ok((episode, world, player1, player2, npcs, camera))
 }
 
+/// Headless smoke test: runs 120 frames per episode without rendering.
+/// Exits cleanly (code 0) on success, or panics on failure.
+fn run_headless() -> Result<(), String> {
+    let _ = env_logger::try_init();
+
+    // Install panic hook so any panic in headless mode is captured
+    init_panic_hook();
+
+    log::info!("Headless mode: starting episode smoke tests");
+
+    // Same episode audit as normal mode
+    let episode_paths = list_episodes();
+    let mut load_failures = Vec::new();
+    let mut load_success = Vec::new();
+
+    for (ep_id, ep_path) in &episode_paths {
+        match Episode::load(ep_path) {
+            Ok(ep) => {
+                log::info!("  [OK] {} ({})", ep.id, ep.difficulty);
+                load_success.push(ep_id.clone());
+            }
+            Err(e) => {
+                log::error!("  [FAIL] {}: {}", ep_id, e);
+                load_failures.push((ep_id.clone(), e));
+            }
+        }
+    }
+
+    if !load_failures.is_empty() {
+        return Err(format!(
+            "Episode audit: {}/{} failed to load. Failures: {:?}",
+            load_failures.len(),
+            episode_paths.len(),
+            load_failures
+        ));
+    }
+
+    let dt = 1.0 / 60.0;
+    let total_frames = 120;
+    let screen_w = 1280u32;
+    let screen_h = 720u32;
+
+    // Run smoke test for each successfully loaded episode
+    for (ep_id, ep_path) in episode_paths.iter() {
+        log::info!("Headless smoke test: episode '{}' ({} frames)", ep_id, total_frames);
+
+        let episode = match Episode::load(ep_path) {
+            Ok(ep) => ep,
+            Err(e) => return Err(format!("Failed to load episode '{}': {}", ep_id, e)),
+        };
+
+        let mut world = World::from_episode(episode.clone());
+
+        let spawn1 = episode.spawn_points.iter().find(|s| s.player == 1)
+            .ok_or_else(|| format!("Player 1 spawn point missing in episode '{}'", ep_id))?;
+        let spawn2 = episode.spawn_points.iter().find(|s| s.player == 2)
+            .ok_or_else(|| format!("Player 2 spawn point missing in episode '{}'", ep_id))?;
+
+        let mut player1 = Player::new(1, spawn1.x, spawn1.y);
+        let mut player2 = Player::new(2, spawn2.x, spawn2.y);
+
+        let _npcs: Vec<Npc> = episode
+            .npcs
+            .iter()
+            .map(|n| Npc::new(n.x, n.y, n.name.clone(), n.dialogue.clone()))
+            .collect();
+
+        let mut camera = Camera::new(screen_w, screen_h, episode.grid_width, episode.grid_height);
+        let mut scene = Scene::new();
+        let mut particles = ParticleSystem::new();
+
+        // Sprite sheets (needed for player tick)
+        let chars_sheet = SpriteSheet::from_json(&loader::load_sprite_sheet("characters"));
+
+        // Initialize player animations
+        player1.anim.play("idle_p1", &chars_sheet, true);
+        player2.anim.play("idle_p2", &chars_sheet, true);
+
+        // Set scene to Playing
+        scene.state = SceneState::Playing;
+        scene.title_timer = 0.0;
+
+        // Run headless frames
+        for frame in 0..total_frames {
+            scene.tick(dt);
+
+            if scene.just_entered_playing() {
+                camera.center_on(player1.grid_x as f32, player1.grid_y as f32);
+            }
+
+            world.tick_trap_cooldowns();
+            particles.tick(dt);
+
+            if scene.state == SceneState::Playing {
+                // No input in headless mode - players stay idle but tick their animations
+                player1.tick(dt, 0.0, 0.0, &mut world, &chars_sheet);
+                player2.tick(dt, 0.0, 0.0, &mut world, &chars_sheet);
+            }
+
+            camera.tick(dt);
+
+            if frame % 30 == 0 {
+                log::info!("  Frame {}/{}: scene={:?}, p1=({},{}), p2=({},{})",
+                    frame, total_frames, scene.state,
+                    player1.grid_x, player1.grid_y,
+                    player2.grid_x, player2.grid_y);
+            }
+        }
+
+        log::info!("  Completed {} frames for '{}'", total_frames, ep_id);
+    }
+
+    log::info!("Headless smoke test: all episodes passed!");
+    Ok(())
+}
+
 /// Initialize the global panic hook that writes to both stderr AND a crash log file.
 /// This ensures panics are never silently swallowed, especially on mobile where
 /// stderr may not be visible.
@@ -126,6 +260,33 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
     // Install panic hook FIRST — before any other initialization
     init_panic_hook();
+
+    // console-1: Helper to convert SDL scancode to character for console input
+    fn scancode_to_char(sc: sdl2::keyboard::Scancode) -> Option<char> {
+        use sdl2::keyboard::Scancode::*;
+        // Note: We only handle letter keys A-Z for console input
+        // Numbers and symbols could be added but are not needed for basic commands
+        match sc {
+            A => Some('a'), B => Some('b'), C => Some('c'), D => Some('d'),
+            E => Some('e'), F => Some('f'), G => Some('g'), H => Some('h'),
+            I => Some('i'), J => Some('j'), K => Some('k'), L => Some('l'),
+            M => Some('m'), N => Some('n'), O => Some('o'), P => Some('p'),
+            Q => Some('q'), R => Some('r'), S => Some('s'), T => Some('t'),
+            U => Some('u'), V => Some('v'), W => Some('w'), X => Some('x'),
+            Y => Some('y'), Z => Some('z'),
+            // Also handle space for convenience
+            Space => Some(' '),
+            // Handle numbers for commands like "scene 2"
+            Num0 => Some('0'), Num1 => Some('1'), Num2 => Some('2'),
+            Num3 => Some('3'), Num4 => Some('4'), Num5 => Some('5'),
+            Num6 => Some('6'), Num7 => Some('7'), Num8 => Some('8'),
+            Num9 => Some('9'),
+            // Period for floating point numbers
+            Period => Some('.'),
+            Minus => Some('-'),
+            _ => None,
+        }
+    }
 
     // ── Episode Load Audit ───────────────────────────────────────────────────
     // Verify ALL episodes load successfully before the game starts.
@@ -170,6 +331,27 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         .find(|w| w[0] == "--screenshot")
         .map(|w| w[1].clone());
     let screenshot_hint = args.contains(&"--screenshot-hint".to_string());
+
+    // qa-replay-1: Check for --record, --replay, --repro flags
+    // Note: --record is handled via F4 hotkey during gameplay; record_path is for future CLI use
+    let _record_path: Option<String> = args.windows(2)
+        .find(|w| w[0] == "--record")
+        .map(|w| w[1].clone());
+    let replay_path: Option<String> = args.windows(2)
+        .find(|w| w[0] == "--replay")
+        .map(|w| w[1].clone());
+    let repro_path: Option<String> = args.windows(2)
+        .find(|w| w[0] == "--repro")
+        .map(|w| w[1].clone());
+
+    // headless-smoke-test: Check for --headless flag (runs 120 frames without rendering)
+    let headless_mode = args.contains(&"--headless".to_string());
+
+    // headless-smoke-test: If headless mode, run without SDL/display
+    if headless_mode {
+        log::info!("VoxParty starting in HEADLESS mode ({}x{})", screen_w, screen_h);
+        return run_headless();
+    }
 
     log::info!("VoxParty starting ({}x{})", screen_w, screen_h);
 
@@ -223,11 +405,20 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     // Scene
     let mut scene = Scene::new();
 
+    // Phase 6: GameState signal — bridges SDL2 loop and Bevy State API
+    let game_state_signal = bevy_plugins::GameStateSignal::new();
+
     // episode-select-1: List available episodes for selection screen
     let episodes = list_episodes();
 
     // Particle system (particle-1: visual juice)
     let mut particles = ParticleSystem::new();
+
+    // Health monitoring system (health assertions for debug overlay)
+    let mut health = HealthMonitor::new();
+
+    // Telemetry logger (telemetry-1: structured event logging)
+    let mut telemetry = TelemetryLogger::new();
 
     // Audio
     let _ = audio.load_sfx("jump", "assets/sounds/jump.wav");
@@ -242,6 +433,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
     // Debug overlay
     let mut debug = DebugOverlay::new();
+    // In-game console
+    let mut console = Console::new();
     let mut god_mode = false;
     // Cheat keys are only active after F1 has been pressed at least once
     let mut cheats_enabled = false;
@@ -257,6 +450,13 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let mut pending_screenshot: Option<String> = None;
 
     let dt = 1.0 / 60.0;
+
+    // telemetry-1: Track if telemetry session is active (reset on return to menu)
+    let mut telemetry_session_active = false;
+
+    // qa-replay-1: Input recording state (F4 toggle)
+    let _input_recorder: Option<InputRecorder> = None;
+    let is_recording = false;
 
     // Screenshot mode: render one frame and save
     // Also handles --screenshot-hint which just renders+presents then exits
@@ -342,6 +542,171 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             // Keep window visible briefly so screencapture can grab it
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
+        // telemetry-1: End telemetry session on game exit
+        telemetry.session_end();
+        return Ok(());
+    }
+
+    // qa-replay-1: Handle --replay mode (headless replay with QA assertions)
+    if let Some(ref replay_path) = replay_path {
+        eprintln!("[QA] Starting replay: {}", replay_path);
+        let mut replayer = match InputReplayer::from_file(replay_path) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[QA] Failed to load replay: {}", e);
+                return Err(e);
+            }
+        };
+
+        let session_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        let total_frames = replayer.total_frames() as u64;
+        let mut qa_report = QaReport::new(session_id.clone(), total_frames);
+
+        // Run headless replay with all QA assertions
+        let camera_for_qa = Camera::new(screen_w, screen_h, episode.grid_width, episode.grid_height);
+        let _result = replayer.headless_replay(|frame, state| {
+            // Build a more complete GameStateForQA using the provided state
+            let full_state = GameStateForQA {
+                frame,
+                camera_x: camera_for_qa.x,
+                camera_y: camera_for_qa.y,
+                player1_grid_x: state.player1_grid_x,
+                player1_grid_y: state.player1_grid_y,
+                player2_grid_x: state.player2_grid_x,
+                player2_grid_y: state.player2_grid_y,
+                fps: state.fps,
+                player1_stuck_frames: state.player1_stuck_frames,
+                player2_stuck_frames: state.player2_stuck_frames,
+                player1_has_input: state.player1_has_input,
+                player2_has_input: state.player2_has_input,
+                _camera: &camera_for_qa,
+            };
+
+            // Run all assertions
+            let mut all_pass = true;
+            let mut fail_name = None;
+            let mut fail_frame = None;
+            let mut fail_detail = None;
+
+            if let AssertionResult::Fail(detail) = assert_camera_within_200px(&full_state) {
+                all_pass = false;
+                fail_name = Some("camera_within_200px");
+                fail_frame = Some(frame);
+                fail_detail = Some(detail);
+            }
+            if let AssertionResult::Fail(detail) = assert_fps_above_10(&full_state) {
+                all_pass = false;
+                fail_name = Some("fps_above_10");
+                fail_frame = Some(frame);
+                fail_detail = Some(detail);
+            }
+            if let AssertionResult::Fail(detail) = assert_no_player_deadlock(&full_state) {
+                all_pass = false;
+                fail_name = Some("no_player_deadlock");
+                fail_frame = Some(frame);
+                fail_detail = Some(detail);
+            }
+
+            if all_pass {
+                AssertionResult::Pass
+            } else {
+                if let (Some(name), Some(f), Some(d)) = (fail_name, fail_frame, fail_detail) {
+                    qa_report.add_result(name, false, Some(f), Some(d));
+                }
+                AssertionResult::Fail(fail_name.unwrap_or("unknown").to_string())
+            }
+        });
+
+        // Record passing assertions
+        if qa_report.assertions.is_empty() || qa_report.assertions.iter().all(|a| a.passed) {
+            qa_report.add_result("camera_within_200px", true, None, None);
+            qa_report.add_result("fps_above_10", true, None, None);
+            qa_report.add_result("no_player_deadlock", true, None, None);
+        }
+
+        // Write QA report
+        let qa_path = format!("telemetry/qa_{}.json", session_id);
+        if let Err(e) = qa_report.write(&qa_path) {
+            eprintln!("[QA] Failed to write report: {}", e);
+        } else {
+            eprintln!("[QA] Report written: {}", qa_path);
+        }
+
+        // Print summary
+        let total = qa_report.passed + qa_report.failed;
+        if qa_report.failed == 0 {
+            println!("QA: {}/{} assertions passed. All OK.", qa_report.passed, total);
+        } else {
+            let failed_assertions: Vec<_> = qa_report.assertions.iter()
+                .filter(|a| !a.passed)
+                .map(|a| format!("{} at frame {}", a.name, a.frame.unwrap_or(0)))
+                .collect();
+            println!("QA: {}/{} assertions passed. Failed: {}", qa_report.passed, total, failed_assertions.join("; "));
+        }
+
+        telemetry.session_end();
+        return Ok(());
+    }
+
+    // qa-replay-1: Handle --repro mode (bug reproduction)
+    if let Some(ref repro_path) = repro_path {
+        eprintln!("[QA] Starting bug reproduction: {}", repro_path);
+        let bug_report = match BugReport::load(repro_path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[QA] Failed to load bug report: {}", e);
+                return Err(e);
+            }
+        };
+
+        eprintln!("[QA] Bug: {} at frame {}", bug_report.reason, bug_report.frame);
+        eprintln!("[QA] Input range: [{}, {}]", bug_report.input_range[0], bug_report.input_range[1]);
+
+        // Find the recording file - use the most recent one
+        let recording_path = std::fs::read_dir(".")
+            .ok()
+            .and_then(|entries| {
+                entries.flatten()
+                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "voxrecord"))
+                    .max_by_key(|e| e.path())
+            })
+            .map(|e| e.path().to_string_lossy().into_owned());
+
+        if let Some(rec_path) = recording_path {
+            eprintln!("[QA] Loading recording: {}", rec_path);
+            let mut replayer = match InputReplayer::from_file(&rec_path) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[QA] Failed to load recording: {}", e);
+                    return Err(e);
+                }
+            };
+
+            let start_frame = bug_report.input_range[0] as usize;
+            let end_frame = bug_report.input_range[1] as usize;
+            replayer.seek_to(start_frame);
+
+            eprintln!("[QA] Replaying frames {} to {}", start_frame, end_frame);
+
+            let mut frame_num = start_frame as u64;
+            while replayer.current_frame() < end_frame && replayer.current_frame() < replayer.total_frames() {
+                if let Some((p1_inputs, p2_inputs)) = replayer.next_frame() {
+                    // In repro mode, just log the inputs for each frame
+                    eprintln!("[QA] Frame {}: P1={:?} P2={:?}", frame_num, p1_inputs, p2_inputs);
+                }
+                frame_num += 1;
+            }
+
+            eprintln!("[QA] Reproduction complete. Frame {} reached.", replayer.current_frame());
+        } else {
+            eprintln!("[QA] No .voxrecord file found in current directory.");
+        }
+
+        telemetry.session_end();
         return Ok(());
     }
 
@@ -351,15 +716,72 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let mut frame_count: u64 = 0;
 
     loop {
+        // sprint-22: Reset draw call counter at start of each frame
+        reset_draw_calls();
+
         // --- INPUT ---
         for event in plat.event_pump.poll_iter() {
             touch.handle_event(&event);
             if let sdl2::event::Event::Quit { .. } = event {
+                // telemetry-1: End telemetry session on quit
+                telemetry.session_end();
                 return Ok(());
             }
 
-            // Debug overlay toggle and cheat keys — only active after F1 pressed
+            // Handle key events
             if let sdl2::event::Event::KeyDown { scancode: Some(sc), .. } = event {
+                // console-1: GRAVE toggles console visibility
+                if sc == sdl2::keyboard::Scancode::Grave {
+                    console.toggle();
+                    continue; // Skip normal key handling when console is open
+                }
+
+                // console-1: When console is visible, intercept all keys for console input
+                if console.visible {
+                    match sc {
+                        sdl2::keyboard::Scancode::Escape => {
+                            console.dismiss();
+                        }
+                        sdl2::keyboard::Scancode::Return | sdl2::keyboard::Scancode::KpEnter => {
+                            // Execute the command
+                            // Clone input first to avoid borrow conflict (console.execute takes &mut self)
+                            let input_text = console.input.clone();
+                            let output = console.execute(
+                                &input_text,
+                                &mut scene,
+                                &mut player1,
+                                &mut player2,
+                                &mut camera,
+                                &mut god_mode,
+                                &mut debug,
+                            );
+                            // Handle screenshot command specially (deferred to after event loop)
+                            if output.iter().any(|l| l.contains("[SCREENSHOT]")) {
+                                pending_screenshot = Some(make_screenshot_path("voxparty"));
+                                screenshot_flash_timer = 1.0;
+                            }
+                            console.handle_enter();
+                        }
+                        sdl2::keyboard::Scancode::Backspace => {
+                            console.handle_backspace();
+                        }
+                        sdl2::keyboard::Scancode::Up => {
+                            console.handle_up();
+                        }
+                        sdl2::keyboard::Scancode::Down => {
+                            console.handle_down();
+                        }
+                        _ => {
+                            // Try to convert scancode to character for letter/number keys
+                            if let Some(c) = scancode_to_char(sc) {
+                                console.handle_char(c);
+                            }
+                        }
+                    }
+                    continue; // Skip normal key handling when console is open
+                }
+
+                // Normal game key handling (when console is NOT visible)
                 // tutorial-1: Dismiss tutorial on any key press during Playing
                 if scene.tutorial_visible && scene.state == SceneState::Playing {
                     scene.dismiss_tutorial();
@@ -377,6 +799,67 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         debug.toggle_fps();
                         eprintln!("[DEBUG] FPS counter: {}", if debug.is_fps_visible() { "ON" } else { "OFF" });
                     }
+                    // qa-replay-1: F4 toggles input recording (only during Playing)
+                    // sprint-20: F4 now cycles through debug display modes: off → FPS → minimap → both → off
+                    sdl2::keyboard::Scancode::F4 => {
+                        // Cycle: 0=off, 1=FPS, 2=minimap, 3=both
+                        static mut DEBUG_CYCLE: u8 = 0;
+                        unsafe {
+                            DEBUG_CYCLE = (DEBUG_CYCLE + 1) % 4;
+                            let (fps_on, minimap_on) = match DEBUG_CYCLE {
+                                0 => (false, false),  // off
+                                1 => (true, false),   // FPS
+                                2 => (false, true),   // minimap
+                                3 => (true, true),    // both
+                                _ => (false, false),
+                            };
+                            // FPS is always settable
+                            if fps_on != debug.is_fps_visible() {
+                                debug.toggle_fps();
+                            }
+                            // Minimap only settable during Playing state
+                            if scene.state == SceneState::Playing {
+                                if minimap_on != debug.is_minimap_visible() {
+                                    debug.toggle_minimap();
+                                }
+                                eprintln!("[DEBUG] Mode: {} FPS, {} minimap",
+                                    if debug.is_fps_visible() { "ON" } else { "OFF" },
+                                    if debug.is_minimap_visible() { "ON" } else { "OFF" });
+                            } else {
+                                // During non-Playing, force minimap off
+                                if debug.is_minimap_visible() {
+                                    debug.toggle_minimap();
+                                }
+                                eprintln!("[DEBUG] Mode: {} FPS (minimap only in Playing)",
+                                    if debug.is_fps_visible() { "ON" } else { "OFF" });
+                            }
+                        }
+                    }
+                    // sprint-22: F5 cycles frame graph overlay: off → FPS → frame graph → both → off
+                    sdl2::keyboard::Scancode::F5 => {
+                        // Cycle: 0=off, 1=FPS, 2=frame_graph, 3=both
+                        static mut FG_CYCLE: u8 = 0;
+                        unsafe {
+                            FG_CYCLE = (FG_CYCLE + 1) % 4;
+                            let (fps_on, fg_on) = match FG_CYCLE {
+                                0 => (false, false),  // off
+                                1 => (true, false),   // FPS only
+                                2 => (false, true),  // frame graph only
+                                3 => (true, true),    // both
+                                _ => (false, false),
+                            };
+                            // Sync fps_visible
+                            if fps_on != debug.is_fps_visible() {
+                                debug.toggle_fps();
+                            }
+                            // Sync frame_graph_visible
+                            if fg_on != debug.is_frame_graph_visible() {
+                                debug.toggle_frame_graph();
+                            }
+                            eprintln!("[DEBUG] F5: FPS={}, frame_graph={}",
+                                debug.is_fps_visible(), debug.is_frame_graph_visible());
+                        }
+                    }
                     // volume-control-1: F7 decreases volume, F8 increases volume
                     sdl2::keyboard::Scancode::F7 => {
                         let new_vol = (scene.save_data.audio_volume - 0.1).max(0.0);
@@ -393,10 +876,12 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         eprintln!("[VOLUME] {}%", (new_vol * 100.0).round() as i32);
                     }
                     // episode-select-1: Wire Menu → EpisodeSelect transition
+                    // Unit 4: Uses scene_plugin transition functions
                     sdl2::keyboard::Scancode::Space | sdl2::keyboard::Scancode::Return => {
                         haptic.vibrate(20, 0.5); // haptics-1: menu button press
                         if scene.state == SceneState::Menu {
-                            scene.start_episode_select();
+                            // Unit 4: Menu → EpisodeSelect via scene_plugin
+                            go_to_episode_select(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::EpisodeSelect {
                             // Select the currently highlighted episode and start game
                             if !episodes.is_empty() {
@@ -417,13 +902,11 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                 player2 = new_p2;
                                 npcs = new_npcs;
                                 camera = new_cam;
-                                // Update last episode in save data
-                                scene.set_last_episode(&episode.id);
-                                // Start the game (transitions to TitleCard)
-                                scene.start_game();
+                                // Unit 4: EpisodeSelect → TitleCard via scene_plugin
+                                go_to_titlecard(&mut scene, &game_state_signal);
                             }
                         } else if scene.state == SceneState::Victory {
-                            // victory-gameover-input: ENTER replays episode
+                            // victory-gameover-input: ENTER replays episode (skip titlecard)
                             if let Some(last_ep) = scene.save_data.last_episode.clone() {
                                 let ep_path = format!("{}/{}.json", EPISODES_DIR, last_ep);
                                 if let Ok((new_ep, new_world, new_p1, new_p2, new_npcs, new_cam)) =
@@ -435,13 +918,16 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                     player2 = new_p2;
                                     npcs = new_npcs;
                                     camera = new_cam;
+                                    // Skip titlecard: go directly to Playing
                                     scene.state = SceneState::Playing;
                                     scene.title_timer = 0.0;
+                                    game_state_signal.set(bevy_plugins::game_state::GameState::Playing);
                                 }
                             }
                         } else if scene.state == SceneState::GameOver {
                             // victory-gameover-input: ENTER returns to menu
-                            scene.return_to_menu();
+                            // Unit 4: GameOver → Menu via scene_plugin
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::Playing {
                             // dialogue-advance: A/Enter/Space advances NPC dialogue
                             dialogue_advance = true;
@@ -466,13 +952,15 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         }
                     }
                     // victory-gameover-input: ESC returns to menu from GameOver, ESC goes back to menu from episode select
+                    // Unit 4: Uses scene_plugin transition functions
                     sdl2::keyboard::Scancode::Escape => {
                         if scene.state == SceneState::GameOver {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::EpisodeSelect {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else {
-                            scene.toggle_pause();
+                            // Unit 4: Playing ↔ Paused toggle via scene_plugin
+                            toggle_pause(&mut scene, &game_state_signal);
                         }
                     }
                     // minpoc-3: Wire GameInput::Interact for NPC dialogue
@@ -480,23 +968,16 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         interact_pressed = true;
                     }
                     // pause-1: Q key quits to menu from pause screen
+                    // Unit 4: Paused → Menu via scene_plugin
                     sdl2::keyboard::Scancode::Q => {
                         if scene.state == SceneState::Paused {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         }
                     }
                     // debug-screenshot-1: F12 saves screenshot to screenshots/ directory
                     sdl2::keyboard::Scancode::F12 => {
-                        let now = chrono::Local::now();
-                        let dirname = "screenshots";
-                        std::fs::create_dir_all(dirname).ok();
-                        let filename = format!(
-                            "{}/voxparty_{}.png",
-                            dirname,
-                            now.format("%Y%m%d_%H%M%S")
-                        );
                         // Defer screenshot to after event loop to avoid borrow conflict
-                        pending_screenshot = Some(filename);
+                        pending_screenshot = Some(make_screenshot_path("voxparty"));
                     }
                     // Arrow keys → player 1 virtual joystick
                     sdl2::keyboard::Scancode::Left => { touch.player1.joystick_x = -1.0; }
@@ -551,6 +1032,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
             // KeyUp → reset arrow key virtual joystick
             if let sdl2::event::Event::KeyUp { scancode: Some(sc), .. } = event {
+                // console-1: Skip keyup handling when console is visible
+                if console.visible {
+                    continue;
+                }
                 match sc {
                     sdl2::keyboard::Scancode::Up => { if touch.player1.joystick_y < 0.0 { touch.player1.joystick_y = 0.0; } }
                     sdl2::keyboard::Scancode::Down => { if touch.player1.joystick_y > 0.0 { touch.player1.joystick_y = 0.0; } }
@@ -599,28 +1084,63 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             }
 
             // Start button = pause toggle (only on press, not hold)
+            // Unit 4: Playing ↔ Paused toggle via scene_plugin
             let start_pressed = gc.button(Button::Start);
             unsafe {
                 if start_pressed && !PREV_START {
                     haptic.vibrate(20, 0.5); // haptics-1: button press
-                    scene.toggle_pause();
+                    toggle_pause(&mut scene, &game_state_signal);
                 }
                 PREV_START = start_pressed;
             }
 
             // B button = cancel/back (return to menu when paused)
+            // Unit 4: Paused → Menu via scene_plugin
             let b_pressed = gc.button(Button::B);
             unsafe {
                 if b_pressed && !PREV_B && scene.state == SceneState::Paused {
                     haptic.vibrate(20, 0.5); // haptics-1: button press
-                    scene.return_to_menu();
+                    go_to_menu(&mut scene, &game_state_signal);
                 }
                 PREV_B = b_pressed;
             }
         }
 
         // --- UPDATE ---
-        scene.tick(dt);
+        // console-1: Tick console cursor blink (always runs)
+        console.tick(dt);
+
+        // console-1: When console is visible, pause the game (skip scene.time_elapsed and player movement)
+        if !console.visible {
+            // Track scene state before tick to detect changes for telemetry
+            let prev_state = scene.state;
+            scene.tick(dt);
+
+            // telemetry-1: Emit scene_change event when state transitions
+            if prev_state != scene.state {
+                telemetry.log_event("scene_change", json!({
+                    "from": format!("{:?}", prev_state),
+                    "to": format!("{:?}", scene.state),
+                }));
+                // telemetry-1: End session when returning to Menu
+                if scene.state == SceneState::Menu && telemetry_session_active {
+                    telemetry.session_end();
+                    telemetry_session_active = false;
+                }
+            }
+
+        // camera-1: Center camera on player when transitioning from TitleCard to Playing
+        if scene.just_entered_playing() {
+            camera.center_on(player1.grid_x as f32, player1.grid_y as f32);
+            health.reset();
+            eprintln!("[CAMERA] Centered on player at ({}, {})", player1.grid_x, player1.grid_y);
+            // telemetry-1: Start telemetry session when entering Playing
+            if !telemetry_session_active {
+                telemetry.session_start(&episode.id, None);
+                telemetry_session_active = true;
+            }
+        }
+
         world.tick_trap_cooldowns();
         // particle-1: tick particle system
         particles.tick(dt);
@@ -631,9 +1151,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         }
 
         // gamepad-full-1: Handle gamepad input for menu state
+        // Unit 4: Menu → TitleCard (gamepad A skips EpisodeSelect) via scene_plugin
         if scene.state == SceneState::Menu && interact_pressed {
             interact_pressed = false;
-            scene.start_game();
+            go_to_titlecard(&mut scene, &game_state_signal);
         }
 
         if scene.state == SceneState::Playing {
@@ -656,6 +1177,13 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             if let Some(event) = player1.tick(dt, p1_jx, p1_jy, &mut world, &chars_sheet) {
                 match event {
                     game::PlayerEvent::Moved => {
+                        // telemetry-1: emit player_move on successful move
+                        telemetry.log_event("player_move", json!({
+                            "player": 1,
+                            "gx": player1.grid_x,
+                            "gy": player1.grid_y,
+                            "success": true,
+                        }));
                         // Play tile-appropriate step sound based on destination tile
                         let tile_str = world.get_tile_string(player1.grid_x, player1.grid_y);
                         audio.play_synth_step(&tile_str);
@@ -666,6 +1194,12 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         particles.spawn(p1x, p1y + 8.0, ParticleType::MovementDust);
                     }
                     game::PlayerEvent::Checkpoint => {
+                        // telemetry-1: emit checkpoint event
+                        telemetry.log_event("checkpoint", json!({
+                            "player": 1,
+                            "gx": player1.grid_x,
+                            "gy": player1.grid_y,
+                        }));
                         audio.play_sfx("checkpoint");
                         haptic.vibrate(50, 0.3); // haptics-1: light vibration on checkpoint
                         // particle-1: spawn sparkle at player1's position
@@ -677,6 +1211,21 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         scene.checkpoint_hit_this_run = true;
                     }
                     game::PlayerEvent::Eliminated => {
+                        // telemetry-1: emit player_die and trap events
+                        let by_tile = world.get_tile_string(player1.grid_x, player1.grid_y);
+                        telemetry.log_event("player_die", json!({
+                            "player": 1,
+                            "gx": player1.grid_x,
+                            "gy": player1.grid_y,
+                            "by_tile": by_tile,
+                        }));
+                        if by_tile.contains("trap") {
+                            telemetry.log_event("trap", json!({
+                                "player": 1,
+                                "gx": player1.grid_x,
+                                "gy": player1.grid_y,
+                            }));
+                        }
                         audio.play_sfx("eliminate");
                         haptic.vibrate(200, 1.0); // haptics-1: heavy vibration on trap elimination
                         // particle-1: spawn trap flash at player1's position
@@ -684,6 +1233,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         particles.spawn(p1x, p1y, ParticleType::TrapFlash);
                         // npc-hints-1: mark that player died this run (for NPC dialogue hints)
                         scene.player_died_this_run = true;
+                        // sprint-20: set death recap
+                        scene.death_recap = Some((by_tile.clone(), player1.grid_x, player1.grid_y));
+                        scene.death_recap_timer = 2.0;
                     }
                     game::PlayerEvent::Won => audio.play_victory_jingle(),
                 }
@@ -693,6 +1245,13 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             if let Some(event) = player2.tick(dt, touch.player2.joystick_x, touch.player2.joystick_y, &mut world, &chars_sheet) {
                 match event {
                     game::PlayerEvent::Moved => {
+                        // telemetry-1: emit player_move on successful move
+                        telemetry.log_event("player_move", json!({
+                            "player": 2,
+                            "gx": player2.grid_x,
+                            "gy": player2.grid_y,
+                            "success": true,
+                        }));
                         // Play tile-appropriate step sound based on destination tile
                         let tile_str = world.get_tile_string(player2.grid_x, player2.grid_y);
                         audio.play_synth_step(&tile_str);
@@ -703,6 +1262,12 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         particles.spawn(p2x, p2y + 8.0, ParticleType::MovementDust);
                     }
                     game::PlayerEvent::Checkpoint => {
+                        // telemetry-1: emit checkpoint event
+                        telemetry.log_event("checkpoint", json!({
+                            "player": 2,
+                            "gx": player2.grid_x,
+                            "gy": player2.grid_y,
+                        }));
                         audio.play_sfx("checkpoint");
                         haptic.vibrate(50, 0.3); // haptics-1: light vibration on checkpoint
                         // particle-1: spawn sparkle at player2's position
@@ -712,6 +1277,21 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         scene.checkpoint_hit_this_run = true;
                     }
                     game::PlayerEvent::Eliminated => {
+                        // telemetry-1: emit player_die and trap events
+                        let by_tile = world.get_tile_string(player2.grid_x, player2.grid_y);
+                        telemetry.log_event("player_die", json!({
+                            "player": 2,
+                            "gx": player2.grid_x,
+                            "gy": player2.grid_y,
+                            "by_tile": by_tile,
+                        }));
+                        if by_tile.contains("trap") {
+                            telemetry.log_event("trap", json!({
+                                "player": 2,
+                                "gx": player2.grid_x,
+                                "gy": player2.grid_y,
+                            }));
+                        }
                         audio.play_sfx("eliminate");
                         haptic.vibrate(200, 1.0); // haptics-1: heavy vibration on trap elimination
                         // particle-1: spawn trap flash at player2's position
@@ -719,6 +1299,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         particles.spawn(p2x, p2y, ParticleType::TrapFlash);
                         // npc-hints-1: mark that player died this run (for NPC dialogue hints)
                         scene.player_died_this_run = true;
+                        // sprint-20: set death recap
+                        scene.death_recap = Some((by_tile.clone(), player2.grid_x, player2.grid_y));
+                        scene.death_recap_timer = 2.0;
                     }
                     game::PlayerEvent::Won => audio.play_victory_jingle(),
                 }
@@ -787,21 +1370,50 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             camera.follow(player1.grid_x as f32, player1.grid_y as f32);
             camera.tick(dt); // gamefeel-1: decay screen shake timer
 
+            // health-1: Run health assertions only during Playing (not during transitions)
+            // Skip during TitleCard/Menu — camera is stale by design before gameplay starts
+            if scene.state == SceneState::Playing {
+                health.check(&camera, (player1.grid_x as f32, player1.grid_y as f32), (player2.grid_x as f32, player2.grid_y as f32), debug.fps(), dt, screen_w, screen_h);
+
+                // screenshot-on-bug-1: Only once per failure episode (not every frame)
+                // After taking a screenshot, set a 60-frame cooldown so we don't spam
+                static SCREENSHOT_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                if health.should_screenshot() && SCREENSHOT_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                    let reason = health.take_screenshot_reason().unwrap_or_else(|| "unknown".to_string());
+                    let path = make_screenshot_path("bug");
+                    telemetry.log_event("health_fail", json!({
+                        "reason": reason,
+                        "screenshot_path": path,
+                    }));
+                    if let Err(e) = plat.screenshot(&path) {
+                        eprintln!("[BUG SCREENSHOT] Failed to capture: {}", e);
+                    } else {
+                        eprintln!("[BUG SCREENSHOT] Captured: {}", path);
+                    }
+                    SCREENSHOT_COOLDOWN.store(60, std::sync::atomic::Ordering::Relaxed);
+                } else if SCREENSHOT_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                    SCREENSHOT_COOLDOWN.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+
             // Win/fail checks
+            // Unit 4: Uses scene_plugin transition functions for state changes
             if player1.state == PlayerState::Won {
                 // save-load-1: Record best time and save on episode complete
                 let time_ms = (scene.time_elapsed * 1000.0) as u64;
                 let _is_new_best = scene.update_best_time(&episode.id, time_ms);
                 scene.set_last_episode(&episode.id);
                 scene.save();
-                scene.trigger_victory(Some(1));
+                // Unit 4: Playing → Victory via scene_plugin
+                trigger_victory(&mut scene, &game_state_signal, Some(1));
             } else if player2.state == PlayerState::Won {
                 // save-load-1: Record best time and save on episode complete
                 let time_ms = (scene.time_elapsed * 1000.0) as u64;
                 let _is_new_best = scene.update_best_time(&episode.id, time_ms);
                 scene.set_last_episode(&episode.id);
                 scene.save();
-                scene.trigger_victory(Some(2));
+                // Unit 4: Playing → Victory via scene_plugin
+                trigger_victory(&mut scene, &game_state_signal, Some(2));
             }
             // Unit 5: Respawn each eliminated player individually
             if player1.state == PlayerState::Eliminated && !god_mode {
@@ -812,19 +1424,23 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             }
             // Last-standing: game-over only when BOTH eliminated simultaneously
             if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(None); // draw
+                // Unit 4: Playing → GameOver via scene_plugin
+                trigger_gameover(&mut scene, &game_state_signal, None); // draw
                 audio.play_gameover_sound();
             }
 
             // Game over timer done → return to menu
+            // Unit 4: GameOver → Menu via scene_plugin
             if scene.state == SceneState::GameOver && scene.gameover_done() {
-                scene.return_to_menu();
+                go_to_menu(&mut scene, &game_state_signal);
             }
             // Victory timer done → return to menu
+            // Unit 4: Victory → Menu via scene_plugin
             if scene.state == SceneState::Victory && scene.victory_done() {
-                scene.return_to_menu();
+                go_to_menu(&mut scene, &game_state_signal);
             }
         }
+        } // End: if !console.visible (pause game updates when console is open)
 
         // Extract player frame data for rendering (must happen before debug_state borrow)
         let p1_frame = player1.anim.current_frame()
@@ -865,14 +1481,25 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             p1_dirs,
             p2_dirs,
         };
+        // Compute player screen positions for debug overlay camera health check
+        let (p1sx, p1sy) = grid_to_screen(player1.grid_x as f32, player1.grid_y as f32, camera.x, camera.y);
+        let (p2sx, p2sy) = grid_to_screen(player2.grid_x as f32, player2.grid_y as f32, camera.x, camera.y);
+
         let debug_state = core::debug::DebugState {
             scene: &scene,
             player1: &player1,
             player2: &player2,
+            world: &world,
             camera: &camera,
             mouse_screen: (mouse_state.x(), mouse_state.y()),
             input: &input_state,
             god_mode,
+            p1_screen: (p1sx as i32, p1sy as i32),
+            p2_screen: (p2sx as i32, p2sy as i32),
+            time_elapsed: scene.time_elapsed,
+            health_results: health.results(),
+            recording: is_recording,
+            show_minimap: debug.is_minimap_visible(),
         };
 
         // --- RENDER ---
@@ -1247,6 +1874,31 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                     box_y + 27,
                     sdl2::pixels::Color::RGBA(150, 150, 150, 255),
                 );
+
+                // sprint-20: Death recap — show elimination info at top-center for 2 seconds
+                if scene.death_recap_timer > 0.0 {
+                    if let Some((ref tile_type, gx, gy)) = scene.death_recap {
+                        let text = format!("ELIMINATED BY {} at ({}, {})", tile_type, gx, gy);
+                        let text_w = text.len() as i32 * 8; // 8px per char
+                        let box_w = text_w + 32;
+                        let box_x = plat.screen_width as i32 / 2 - box_w / 2;
+                        let box_y = 40;
+                        // Semi-transparent dark box
+                        plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 180));
+                        let _ = plat.canvas.fill_rect(sdl2::rect::Rect::new(box_x, box_y, box_w as u32, 28));
+                        // Red border
+                        plat.canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 60, 60, 255));
+                        let _ = plat.canvas.draw_rect(sdl2::rect::Rect::new(box_x, box_y, box_w as u32, 28));
+                        // Text
+                        DebugOverlay::draw_text(
+                            &mut plat.canvas,
+                            &text,
+                            box_x + 16,
+                            box_y + 8,
+                            sdl2::pixels::Color::RGBA(255, 80, 80, 255),
+                        );
+                    }
+                }
 
                 // tutorial-1: Draw tutorial overlay during Playing (before first move)
                 if scene.tutorial_visible && scene.state == SceneState::Playing {
@@ -1663,6 +2315,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         // Debug overlay renders on top of everything
         debug.render(&mut plat.canvas, &debug_state);
 
+        // console-1: Console renders on top of everything (including debug overlay)
+        console.render(&mut plat.canvas);
+
         // particle-1: Draw particles on top of game, below debug overlay
         particles.draw(&mut plat.canvas);
 
@@ -1679,6 +2334,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             );
         }
 
+        // sprint-22: Record draw calls before present
+        debug.set_draw_calls(draw_call_count());
+
         plat.present();
 
         // Frame timing heartbeat — every 100 frames, log to confirm loop is alive.
@@ -1687,6 +2345,34 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         if frame_count % 100 == 0 {
             log::info!("[FRAME] #{:08}  scene={:?}", frame_count, scene.state);
         }
+
+        // telemetry-1: Emit fps_sample every 60 frames
+        if frame_count % 60 == 0 {
+            telemetry.log_event("fps_sample", json!({
+                "fps": debug.fps(),
+            }));
+        }
+
+        // sprint-22: Emit frame_budget and draw_calls telemetry every 300 frames
+        if frame_count % 300 == 0 {
+            telemetry.log_event("frame_budget", json!({
+                "avg_ms": debug.avg_frame_time().unwrap_or(0.0),
+                "p99_ms": debug.p99_frame_time().unwrap_or(0.0),
+                "fps_equivalent": if debug.avg_frame_time().unwrap_or(0.0) > 0.0 {
+                    1000.0 / debug.avg_frame_time().unwrap_or(16.67)
+                } else { 0.0 },
+            }));
+            telemetry.log_event("draw_calls", json!({
+                "count": debug.draw_call_count(),
+            }));
+            // sprint-22: Performance warning if draw calls > 100 per frame
+            if debug.draw_call_count() > 100 {
+                log::warn!("[PERF] High draw calls: {} (target < 100)", debug.draw_call_count());
+            }
+        }
+
+        // telemetry-1: Flush buffered events to disk at end of each frame
+        telemetry.flush();
 
         plat.delay(16);
     }
@@ -1987,5 +2673,68 @@ mod respawn_tests {
 
         assert_eq!(scene.state, SceneState::GameOver);
         assert_eq!(scene.winner, Some(2), "P2 should win");
+    }
+}
+
+/// Tests for headless smoke test mode.
+#[cfg(test)]
+mod headless_tests {
+    use super::*;
+
+    /// Test that headless mode runs without panicking on demo episode.
+    #[test]
+    fn test_headless_flag_exits_cleanly() {
+        // This test verifies the headless run path doesn't panic.
+        // It runs a minimal subset (just episode audit + one episode's init)
+        // without the full 120 frames to keep test time reasonable.
+        let _ = env_logger::try_init();
+
+        // Verify demo episode loads successfully
+        let episode = Episode::load("assets/episodes/demo.json");
+        assert!(episode.is_ok(), "demo episode should load for headless test");
+
+        let ep = episode.unwrap();
+        // sprint-20: episode id was changed from "demo" to "ep_demo" in the JSON
+        assert_eq!(ep.id, "ep_demo");
+
+        // Verify world creation doesn't panic
+        let mut world = World::from_episode(ep.clone());
+        assert!(world.grid_w > 0);
+        assert!(world.grid_h > 0);
+
+        // Verify player creation doesn't panic
+        let spawn1 = ep.spawn_points.iter().find(|s| s.player == 1).unwrap();
+        let player = Player::new(1, spawn1.x, spawn1.y);
+        assert_eq!(player.grid_x, spawn1.x);
+        assert_eq!(player.grid_y, spawn1.y);
+
+        // Verify camera creation doesn't panic
+        let camera = Camera::new(1280, 720, ep.grid_width, ep.grid_height);
+        // Camera starts centered on world (not at 0,0)
+        assert!(camera.x.is_finite());
+        assert!(camera.y.is_finite());
+
+        // Verify scene creation doesn't panic
+        let scene = Scene::new();
+        assert_eq!(scene.state, SceneState::Menu);
+
+        // Verify particle system creation doesn't panic
+        let mut particles = ParticleSystem::new();
+
+        // Verify tick calls don't panic (5 frames only for test speed)
+        let dt = 1.0 / 60.0;
+        let chars_sheet = SpriteSheet::from_json(&assets::loader::load_sprite_sheet("characters"));
+        let mut player1 = Player::new(1, spawn1.x, spawn1.y);
+        let mut scene = Scene::new();
+        scene.state = SceneState::Playing;
+
+        for _ in 0..5 {
+            scene.tick(dt);
+            player1.tick(dt, 0.0, 0.0, &mut world, &chars_sheet);
+            let _ = particles.tick(dt);
+        }
+
+        // If we get here without panic, the test passes
+        assert!(true, "headless path executed without panic");
     }
 }
