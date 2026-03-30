@@ -16,13 +16,21 @@ pub mod input;
 pub mod sprite;       // TextureAtlas + GridPos + IsoDepthSystem
 pub mod iso_camera;   // IsoCameraBundle + follow system
 pub mod sprite_spawn; // Tile/player spawn systems
+pub mod world;        // WorldComponent + VoxpartyWorld resource + tick systems
+pub mod player;       // PlayerComponent + movement systems
+pub mod npc;          // NpcComponent + NpcTag + dialogue/sprite systems
+pub mod particle;     // Particle ECS components + spawner + systems
 
 use bevy::prelude::*;
 
 // Re-export types for convenience
 pub use sprite::{GridPos, SortedSprite, SpritePlugin};
 pub use sprite_spawn::{PlayerTag, TileTag, SpriteSpawnPlugin};
-pub use iso_camera::{IsoCamera, IsoCameraBundle, IsoCameraPlugin};
+pub use iso_camera::{CameraShake, IsoCamera, IsoCameraBundle, IsoCameraPlugin, PreviousCamPos, camera_shake_system};
+pub use player::{PlayerComponent, PlayerState, PlayerPlugin};
+pub use npc::{NpcComponent, NpcDialogueState, NpcTag, EpisodeNpcs, NpcPlugin};
+pub use particle::{Particle, ParticleType, ParticleColor, ParticleSpawner, ParticlePlugin};
+pub use world::{WorldComponent, VoxpartyWorld, WorldPlugin};
 
 /// Combined sprite rendering plugin for Phase 2.
 /// Wires together: atlas creation, isometric camera, tile/player spawning, depth sorting.
@@ -45,10 +53,18 @@ impl BevySpritePlugin {
 impl Plugin for BevySpritePlugin {
     fn build(&self, app: &mut App) {
         // Add all sprite-related plugins
+        // Phase 2: Sprite rendering
         app.add_plugins((
             SpritePlugin::new(),
             IsoCameraPlugin::new(1280.0, 720.0),
             SpriteSpawnPlugin::new(),
+        ));
+        // Phase 3: Game entities (ECS)
+        app.add_plugins((
+            WorldPlugin::new(),
+            PlayerPlugin::new(),
+            NpcPlugin::new(),
+            ParticlePlugin::new(),
         ));
     }
 }

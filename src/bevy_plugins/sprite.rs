@@ -11,7 +11,6 @@ use std::collections::HashMap;
 
 use crate::assets::tile_gen::generate_tile_sprites;
 use crate::core::isom::depth_key;
-use crate::game::{World, Episode};
 
 /// Grid-space position component for isometric depth sorting.
 /// Entities with this component get their z-translation set by IsoDepthSystem.
@@ -59,21 +58,6 @@ fn build_tile_name_to_index() -> HashMap<String, usize> {
         .iter()
         .map(|(name, idx)| (name.to_string(), *idx))
         .collect()
-}
-
-/// Current world state resource for Bevy systems.
-/// Set by the game when starting an episode.
-#[derive(Resource)]
-pub struct VoxpartyWorld {
-    pub world: World,
-}
-
-impl VoxpartyWorld {
-    pub fn from_episode(episode: Episode) -> Self {
-        Self {
-            world: World::from_episode(episode),
-        }
-    }
 }
 
 /// Sprite atlas resource holding the tile texture atlas handle and name→index lookup.
@@ -189,32 +173,5 @@ mod tests {
         assert_eq!(map.get("stone_solid"), Some(&2));
         assert_eq!(map.get("lava_trap"), Some(&3));
         assert_eq!(map.get("goal"), Some(&9));
-    }
-
-    #[test]
-    fn test_voxparty_world_from_episode() {
-        let json = r#"{
-            "id": "ep_test",
-            "title": "Test",
-            "mode": "solo",
-            "theme": "cave",
-            "difficulty": "easy",
-            "duration_target_seconds": 60,
-            "tile_width": 64,
-            "tile_height": 32,
-            "grid_width": 3,
-            "grid_height": 3,
-            "tiles": [
-                {"x": 1, "y": 1, "type": "stone_solid"}
-            ],
-            "npcs": [],
-            "checkpoints": [],
-            "spawn_points": [],
-            "win_condition": {"type": "reach_goal"},
-            "fail_condition": {"type": "fall_off_map"}
-        }"#;
-        let ep: Episode = serde_json::from_str(json).unwrap();
-        let world = World::from_episode(ep.clone());
-        assert_eq!(world.get_tile(1, 1), crate::game::TileType::Solid);
     }
 }

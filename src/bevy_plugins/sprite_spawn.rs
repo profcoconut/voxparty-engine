@@ -12,6 +12,8 @@ use crate::core::sprites::SpriteSheet;
 use crate::core::isom::{grid_to_screen, depth_key};
 use crate::bevy_plugins::input::Players;
 use crate::bevy_plugins::sprite::GridPos;
+use crate::bevy_plugins::world::VoxpartyWorld;
+use crate::bevy_plugins::player::PlayerComponent;
 
 /// Marker component identifying a player sprite entity.
 /// The u8 is the player_id (1 or 2).
@@ -72,8 +74,7 @@ impl Plugin for SpriteSpawnPlugin {
 pub fn tile_spawn_system(
     mut commands: Commands,
     tiles: Query<Entity, With<TileTag>>,
-    // Use full path to avoid conflict with Bevy's World
-    world: Res<crate::game::world::World>,
+    world: Res<VoxpartyWorld>,
     atlas: Res<VoxpartyAtlas>,
 ) {
     // Despawn all existing tile entities to avoid duplicates
@@ -83,8 +84,8 @@ pub fn tile_spawn_system(
     }
 
     // Spawn new tile entities for each tile in the episode
-    // Note: World.episode.tiles is Vec<TileDef> with {x, y, tile_type}
-    for tile in &world.episode.tiles {
+    // Note: VoxpartyWorld.world.episode.tiles is Vec<TileDef> with {x, y, tile_type}
+    for tile in &world.world.episode.tiles {
         let gx = tile.x;
         let gy = tile.y;
         let tile_type = &tile.tile_type;
@@ -159,5 +160,11 @@ fn spawn_player_sprite(
         atlas.make_atlas(frame_index),
     );
 
-    commands.spawn((sprite, Transform::from_translation(Vec3::new(sx, sy, depth as f32)), PlayerTag(player_id), GridPos { x: grid_x, y: grid_y, z: 1 }));
+    commands.spawn((
+        sprite,
+        Transform::from_translation(Vec3::new(sx, sy, depth as f32)),
+        PlayerTag(player_id),
+        PlayerComponent::new(player_id, grid_x, grid_y),
+        GridPos { x: grid_x, y: grid_y, z: 1 },
+    ));
 }
