@@ -30,8 +30,13 @@ struct WorldCanvasView: View {
                     }
                 }
 
-                // Sort by depth (ascending)
-                drawables.sort { $0.depth < $1.depth }
+                // Sort by depth ascending, then gridX ascending (left-to-right at same depth)
+                // This ensures correct painter's algorithm for isometric tiles
+                drawables.sort { lhs, rhs in
+                    if lhs.depth != rhs.depth { return lhs.depth < rhs.depth }
+                    if lhs.x != rhs.x { return lhs.x < rhs.x }
+                    return lhs.y < rhs.y
+                }
 
                 // Draw tiles
                 for drawable in drawables {
@@ -44,6 +49,10 @@ struct WorldCanvasView: View {
                         )
                         let path = IsometricMath.createDiamondPath(at: adjustedPos)
                         context.fill(path, with: .color(blockType.color))
+
+                        // Top-shade: subtle highlight at top of tile to add depth
+                        let topShade = IsometricMath.createTopShadePath(at: adjustedPos)
+                        context.fill(topShade, with: .color(.white.opacity(0.12)))
                     }
                 }
 

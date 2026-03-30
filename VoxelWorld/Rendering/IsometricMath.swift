@@ -45,4 +45,26 @@ struct IsometricMath {
 
         return path
     }
+
+    /// Creates a small top-shade triangle — highlights the top ~25% of the diamond face
+    /// to add depth and mask anti-aliasing seams between adjacent tiles
+    static func createTopShadePath(at point: CGPoint) -> Path {
+        var path = Path()
+        let halfW = tileWidth / 2
+        let halfH = tileHeight / 2
+        let shadeFraction: CGFloat = 0.25  // top 25% of diamond height
+
+        let topY = point.y - halfH
+        let shadeBottomY = topY + halfH * 2 * shadeFraction
+
+        // Top vertex
+        path.move(to: CGPoint(x: point.x, y: topY))
+        // Left edge, partway down
+        path.addLine(to: CGPoint(x: point.x - halfW * shadeFraction, y: shadeBottomY))
+        // Right edge, partway down
+        path.addLine(to: CGPoint(x: point.x + halfW * shadeFraction, y: shadeBottomY))
+        path.closeSubpath()
+
+        return path
+    }
 }
