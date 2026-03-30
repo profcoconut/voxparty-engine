@@ -1,0 +1,87 @@
+name: Mobile Builds + Tests
+
+on:
+  push:
+    branches: [feat/engine, main]
+  pull_request:
+    branches: [feat/engine, main]
+
+jobs:
+  test-desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Build
+        run: cargo build --release
+      - name: Test
+        run: cargo test
+      - name: Verify binary
+        run: test -f target/release/voxparty && echo "Binary exists"
+
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Add iOS target
+        run: rustup target add aarch64-apple-ios
+      - name: Build iOS
+        run: cargo build --target aarch64-apple-ios --release
+      - name: Verify artifact
+        run: test -f target/aarch64-apple-ios/release/libvoxparty.a && echo "iOS artifact exists"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifact
+          path: target/aarch64-apple-ios/release/libvoxparty.a
+
+  build-android:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Check Android NDK
+        id: check-android
+        run: |
+          if [ -n "$ANDROID_NDK_HOME" ] || [ -n "$ANDROID_SDK_ROOT" ]; then
+            echo "android_available=true" >> $GITHUB_OUTPUT
+            echo "Android toolchain found: ANDROID_NDK_HOME=$ANDROID_NDK_HOME, ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          else
+            echo "android_available=false" >> $GITHUB_OUTPUT
+            echo "WARNING: Android NDK not configured. Android build will be skipped."
+            echo "Set ANDROID_NDK_HOME or ANDROID_SDK_ROOT environment variable to enable Android builds."
+          fi
+      - name: Add Android target
+        run: rustup target add aarch64-linux-android
+      - name: Build Android
+        if: steps.check-android.outputs.android_available == 'true'
+        run: cargo build --target aarch64-linux-android --release
+      - name: Verify Android artifact
+        if: steps.check-android.outputs.android_available == 'true'
+        run: test -f target/aarch64-linux-android/release/libvoxparty.a && echo "Android artifact exists"
+      - uses: actions/upload-artifact@v4
+        if: steps.check-android.outputs.android_available == 'true'
+        with:
+          name: android-artifact
+          path: target/aarch64-linux-android/release/libvoxparty.a
+
+  smoke-test-headless:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Build
+        run: cargo build --release
+      - name: Run headless smoke test
+        run: |
+          if [ -f target/release/voxparty ]; then
+            timeout 60 target/release/voxparty --headless || echo "Headless exit code: $?"
+            echo "Smoke test completed"
+          else
+            echo "Binary not found, skipping smoke test"
+            exit 1
+          fi

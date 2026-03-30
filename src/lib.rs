@@ -12,6 +12,10 @@ use game::input::{gamepad_to_inputs, InputRecorder, InputReplayer, BugReport, Qa
 use assets::loader;
 use serde_json::json;
 use std::fs;
+use bevy_plugins::scene_plugin::{
+    go_to_episode_select, go_to_titlecard, go_to_menu, toggle_pause,
+    trigger_victory, trigger_gameover,
+};
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn run() {
@@ -400,6 +404,9 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
 
     // Scene
     let mut scene = Scene::new();
+
+    // Phase 6: GameState signal — bridges SDL2 loop and Bevy State API
+    let mut game_state_signal = bevy_plugins::GameStateSignal::new();
 
     // episode-select-1: List available episodes for selection screen
     let episodes = list_episodes();
@@ -869,10 +876,12 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         eprintln!("[VOLUME] {}%", (new_vol * 100.0).round() as i32);
                     }
                     // episode-select-1: Wire Menu → EpisodeSelect transition
+                    // Unit 4: Uses scene_plugin transition functions
                     sdl2::keyboard::Scancode::Space | sdl2::keyboard::Scancode::Return => {
                         haptic.vibrate(20, 0.5); // haptics-1: menu button press
                         if scene.state == SceneState::Menu {
-                            scene.start_episode_select();
+                            // Unit 4: Menu → EpisodeSelect via scene_plugin
+                            go_to_episode_select(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::EpisodeSelect {
                             // Select the currently highlighted episode and start game
                             if !episodes.is_empty() {
@@ -893,13 +902,11 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                 player2 = new_p2;
                                 npcs = new_npcs;
                                 camera = new_cam;
-                                // Update last episode in save data
-                                scene.set_last_episode(&episode.id);
-                                // Start the game (transitions to TitleCard)
-                                scene.start_game();
+                                // Unit 4: EpisodeSelect → TitleCard via scene_plugin
+                                go_to_titlecard(&mut scene, &game_state_signal);
                             }
                         } else if scene.state == SceneState::Victory {
-                            // victory-gameover-input: ENTER replays episode
+                            // victory-gameover-input: ENTER replays episode (skip titlecard)
                             if let Some(last_ep) = scene.save_data.last_episode.clone() {
                                 let ep_path = format!("{}/{}.json", EPISODES_DIR, last_ep);
                                 if let Ok((new_ep, new_world, new_p1, new_p2, new_npcs, new_cam)) =
@@ -911,13 +918,16 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                                     player2 = new_p2;
                                     npcs = new_npcs;
                                     camera = new_cam;
+                                    // Skip titlecard: go directly to Playing
                                     scene.state = SceneState::Playing;
                                     scene.title_timer = 0.0;
+                                    game_state_signal.set(bevy_plugins::game_state::GameState::Playing);
                                 }
                             }
                         } else if scene.state == SceneState::GameOver {
                             // victory-gameover-input: ENTER returns to menu
-                            scene.return_to_menu();
+                            // Unit 4: GameOver → Menu via scene_plugin
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::Playing {
                             // dialogue-advance: A/Enter/Space advances NPC dialogue
                             dialogue_advance = true;
@@ -942,13 +952,15 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         }
                     }
                     // victory-gameover-input: ESC returns to menu from GameOver, ESC goes back to menu from episode select
+                    // Unit 4: Uses scene_plugin transition functions
                     sdl2::keyboard::Scancode::Escape => {
                         if scene.state == SceneState::GameOver {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else if scene.state == SceneState::EpisodeSelect {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         } else {
-                            scene.toggle_pause();
+                            // Unit 4: Playing ↔ Paused toggle via scene_plugin
+                            toggle_pause(&mut scene, &game_state_signal);
                         }
                     }
                     // minpoc-3: Wire GameInput::Interact for NPC dialogue
@@ -956,9 +968,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
                         interact_pressed = true;
                     }
                     // pause-1: Q key quits to menu from pause screen
+                    // Unit 4: Paused → Menu via scene_plugin
                     sdl2::keyboard::Scancode::Q => {
                         if scene.state == SceneState::Paused {
-                            scene.return_to_menu();
+                            go_to_menu(&mut scene, &game_state_signal);
                         }
                     }
                     // debug-screenshot-1: F12 saves screenshot to screenshots/ directory
@@ -1071,21 +1084,23 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             }
 
             // Start button = pause toggle (only on press, not hold)
+            // Unit 4: Playing ↔ Paused toggle via scene_plugin
             let start_pressed = gc.button(Button::Start);
             unsafe {
                 if start_pressed && !PREV_START {
                     haptic.vibrate(20, 0.5); // haptics-1: button press
-                    scene.toggle_pause();
+                    toggle_pause(&mut scene, &game_state_signal);
                 }
                 PREV_START = start_pressed;
             }
 
             // B button = cancel/back (return to menu when paused)
+            // Unit 4: Paused → Menu via scene_plugin
             let b_pressed = gc.button(Button::B);
             unsafe {
                 if b_pressed && !PREV_B && scene.state == SceneState::Paused {
                     haptic.vibrate(20, 0.5); // haptics-1: button press
-                    scene.return_to_menu();
+                    go_to_menu(&mut scene, &game_state_signal);
                 }
                 PREV_B = b_pressed;
             }
@@ -1136,9 +1151,10 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
         }
 
         // gamepad-full-1: Handle gamepad input for menu state
+        // Unit 4: Menu → TitleCard (gamepad A skips EpisodeSelect) via scene_plugin
         if scene.state == SceneState::Menu && interact_pressed {
             interact_pressed = false;
-            scene.start_game();
+            go_to_titlecard(&mut scene, &game_state_signal);
         }
 
         if scene.state == SceneState::Playing {
@@ -1381,20 +1397,23 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             }
 
             // Win/fail checks
+            // Unit 4: Uses scene_plugin transition functions for state changes
             if player1.state == PlayerState::Won {
                 // save-load-1: Record best time and save on episode complete
                 let time_ms = (scene.time_elapsed * 1000.0) as u64;
                 let _is_new_best = scene.update_best_time(&episode.id, time_ms);
                 scene.set_last_episode(&episode.id);
                 scene.save();
-                scene.trigger_victory(Some(1));
+                // Unit 4: Playing → Victory via scene_plugin
+                trigger_victory(&mut scene, &game_state_signal, Some(1));
             } else if player2.state == PlayerState::Won {
                 // save-load-1: Record best time and save on episode complete
                 let time_ms = (scene.time_elapsed * 1000.0) as u64;
                 let _is_new_best = scene.update_best_time(&episode.id, time_ms);
                 scene.set_last_episode(&episode.id);
                 scene.save();
-                scene.trigger_victory(Some(2));
+                // Unit 4: Playing → Victory via scene_plugin
+                trigger_victory(&mut scene, &game_state_signal, Some(2));
             }
             // Unit 5: Respawn each eliminated player individually
             if player1.state == PlayerState::Eliminated && !god_mode {
@@ -1405,17 +1424,20 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
             }
             // Last-standing: game-over only when BOTH eliminated simultaneously
             if player1.state == PlayerState::Eliminated && player2.state == PlayerState::Eliminated && !god_mode {
-                scene.trigger_gameover(None); // draw
+                // Unit 4: Playing → GameOver via scene_plugin
+                trigger_gameover(&mut scene, &game_state_signal, None); // draw
                 audio.play_gameover_sound();
             }
 
             // Game over timer done → return to menu
+            // Unit 4: GameOver → Menu via scene_plugin
             if scene.state == SceneState::GameOver && scene.gameover_done() {
-                scene.return_to_menu();
+                go_to_menu(&mut scene, &game_state_signal);
             }
             // Victory timer done → return to menu
+            // Unit 4: Victory → Menu via scene_plugin
             if scene.state == SceneState::Victory && scene.victory_done() {
-                scene.return_to_menu();
+                go_to_menu(&mut scene, &game_state_signal);
             }
         }
         } // End: if !console.visible (pause game updates when console is open)

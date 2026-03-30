@@ -4,6 +4,8 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use std::collections::HashMap;
 
+use crate::core::sprites::increment_draw_calls;
+
 /// Raw sprite data stored with 'static lifetime (owned heap allocation).
 pub struct RawSprite {
     pub data: Box<[u8]>,
@@ -90,8 +92,15 @@ impl Platform {
     pub fn screenshot(&mut self, path: &str) -> Result<(), String> {
         use image::{ImageBuffer, Rgba};
 
-        let w = 1280u32;
-        let h = 720u32;
+        // Create screenshots directory if it doesn't exist
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+            }
+        }
+
+        let w = self.screen_width;
+        let h = self.screen_height;
 
         // read_pixels reads from the canvas's internal buffer before present
         let pixels = self
@@ -142,6 +151,7 @@ impl Platform {
 
     /// Blit a sprite by name at the given destination rect (in screen pixels).
     /// Creates a transient texture for the blit.
+    /// sprint-22: Increments draw call counter for each blit.
     pub fn blit_sprite(&mut self, name: &str, dst: Rect, src: Option<Rect>) -> Result<(), String> {
         let sprite = self.sprites.get(name).ok_or_else(|| format!("Sprite not found: {}", name))?;
 
@@ -161,6 +171,8 @@ impl Platform {
             .create_texture_from_surface(&mut surface)
             .map_err(|e| e.to_string())?;
 
+        // sprint-22: Count every canvas.copy as one draw call
+        increment_draw_calls();
         self.canvas.copy(&texture, src, dst).map_err(|e| e.to_string())
     }
 }

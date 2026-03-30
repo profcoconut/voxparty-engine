@@ -3,6 +3,7 @@ use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 use crate::core::isom::screen_to_grid;
 
 /// Tap tracking state for a single finger.
@@ -43,7 +44,7 @@ impl FingerTracker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GameInput {
     MoveLeft,
     MoveRight,

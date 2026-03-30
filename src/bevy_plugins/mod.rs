@@ -25,7 +25,16 @@ pub mod particle;     // Particle ECS components + spawner + systems
 
 pub mod audio;        // AudioManager Bevy resource + AudioEvent + playback system
 
+// ─── Phase 5: Mobile Haptics ─────────────────────────────────────────────────
+
+pub mod haptic;      // HapticManager Bevy resource + HapticEvent + playback system
+
+// ─── Phase 6: Scene states ───────────────────────────────────────────────────
+
+pub mod scene_plugin; // SceneData resource + timer resources + tick systems
+
 use bevy::prelude::*;
+use game_state::GameState;
 
 // Re-export types for convenience
 pub use sprite::{GridPos, SortedSprite, SpritePlugin};
@@ -36,6 +45,9 @@ pub use npc::{NpcComponent, NpcDialogueState, NpcTag, EpisodeNpcs, NpcPlugin};
 pub use particle::{Particle, ParticleType, ParticleColor, ParticleSpawner, ParticlePlugin};
 pub use world::{WorldComponent, VoxpartyWorld, WorldPlugin};
 pub use audio::{AudioEvent, AudioPlugin, audio_playback_observer};
+pub use haptic::{HapticEvent, HapticPlugin, haptic_playback_observer};
+pub use scene_plugin::{SceneData, ScenePlugin, SceneState, GameStateSignal, TitleCardTimer, GameOverTimer, VictoryTimer, TitlecardFadeTimer, TitlecardPulseTimer};
+pub use scene_plugin::{go_to_episode_select, go_to_titlecard, go_to_menu, toggle_pause, trigger_victory, trigger_gameover, reload_episode_state};
 
 /// Combined sprite rendering plugin for Phase 2.
 /// Wires together: atlas creation, isometric camera, tile/player spawning, depth sorting.
@@ -57,6 +69,9 @@ impl BevySpritePlugin {
 
 impl Plugin for BevySpritePlugin {
     fn build(&self, app: &mut App) {
+        // Phase 6: Initialize GameState - this drives all scene state transitions
+        app.init_state::<GameState>();
+
         // Add all sprite-related plugins
         // Phase 2: Sprite rendering
         app.add_plugins((
@@ -73,5 +88,9 @@ impl Plugin for BevySpritePlugin {
         ));
         // Phase 4: Audio
         app.add_plugins(AudioPlugin::new());
+        // Phase 5: Mobile Haptics
+        app.add_plugins(HapticPlugin::new());
+        // Phase 6: Scene states
+        app.add_plugins(ScenePlugin::new());
     }
 }

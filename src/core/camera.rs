@@ -1,5 +1,6 @@
 use crate::core::isom::{TILE_W, TILE_H, grid_to_screen};
 
+#[derive(Debug)]
 pub struct Camera {
     /// Current pixel offset (top-left of viewport in world space)
     pub x: f32,
@@ -42,10 +43,29 @@ impl Camera {
             world_w,
             world_h,
             deadzone: 0.2,
-            lerp_speed: 0.1,
+            lerp_speed: 0.15,
             shake_timer: 0.0,
             shake_intensity: 0.0,
         }
+    }
+
+    /// Instantly center the camera on the given grid position.
+    /// Call this when entering Playing state to ensure player is visible.
+    pub fn center_on(&mut self, gx: f32, gy: f32) {
+        let (px, py) = grid_to_screen(gx, gy, 0.0, 0.0);
+        // Camera should position so player is centered on screen
+        let target_screen_x = px + TILE_W / 2.0;
+        let target_screen_y = py + TILE_H / 2.0;
+        self.target_x = target_screen_x - self.screen_w as f32 / 2.0;
+        self.target_y = target_screen_y - self.screen_h as f32 / 2.0;
+        // Clamp to world bounds
+        let max_cam_x = self.world_w as f32 * TILE_W - self.screen_w as f32;
+        let max_cam_y = self.world_h as f32 * TILE_H - self.screen_h as f32;
+        self.target_x = self.target_x.clamp(0.0, max_cam_x.max(0.0));
+        self.target_y = self.target_y.clamp(0.0, max_cam_y.max(0.0));
+        // Snap current position to target
+        self.x = self.target_x;
+        self.y = self.target_y;
     }
 
     /// Update camera to follow the given grid position.

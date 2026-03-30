@@ -30,6 +30,10 @@ env_logger = "0.11"
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 env_logger = "0.11"
 
+# iOS Core Haptics for haptic feedback
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-core-haptics = "0.3"
+
 [profile.release]
 opt-level = 3
 lto = true

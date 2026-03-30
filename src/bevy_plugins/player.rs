@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use crate::core::collision::try_move;
 use crate::core::quantize_direction;
 use crate::bevy_plugins::audio::AudioEvent;
+use crate::bevy_plugins::haptic::HapticEvent;
 use crate::bevy_plugins::input::{Players, GameInput, VirtualGamepad};
 use crate::bevy_plugins::sprite::GridPos;
 
@@ -167,11 +168,13 @@ pub fn player_movement_system(
                     tile_str
                 };
                 commands.trigger(AudioEvent::Step(step_name));
+                commands.trigger(HapticEvent::Move);
 
                 // Check traps
                 if world.world.check_trap(new_x, new_y) {
                     player.state = PlayerState::Eliminated;
                     commands.trigger(AudioEvent::Trap);
+                    commands.trigger(HapticEvent::Trap);
                     continue;
                 }
 
@@ -180,6 +183,7 @@ pub fn player_movement_system(
                     player.checkpoint_x = new_x;
                     player.checkpoint_y = new_y;
                     commands.trigger(AudioEvent::Checkpoint);
+                    commands.trigger(HapticEvent::Checkpoint);
                 }
 
                 // Check win condition
