@@ -17,7 +17,7 @@ enum BlockType: Int, CaseIterable {
         case .stone: return Color(red: 0.5, green: 0.5, blue: 0.55)
         case .wood: return Color(red: 0.55, green: 0.35, blue: 0.15)
         case .leaves: return Color(red: 0.2, green: 0.6, blue: 0.2)
-        case .water: return Color(red: 0.2, green: 0.4, blue: 0.8).opacity(0.7)
+        case .water: return Color(red: 0.2, green: 0.4, blue: 0.8)
         }
     }
 

@@ -44,7 +44,6 @@ struct WorldCanvasView: View {
                         )
                         let path = IsometricMath.createDiamondPath(at: adjustedPos)
                         context.fill(path, with: .color(blockType.color))
-                        context.stroke(path, with: .color(.black.opacity(0.3)), lineWidth: 1)
                     }
                 }
 
