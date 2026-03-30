@@ -2,7 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0.0] - 2026-03-30
+## [Unreleased]
+
+### Added
+
+- **iOS Isometric Minecraft Game (Sprint 2):** Full 2D isometric pixel art game in iOS SpriteKit.
+  Procedural 64x64 terrain via GameplayKit GKNoise (grass, dirt, stone, wood, leaves, water).
+  Grid-based 8-direction player movement with smooth animation. Tap to break blocks,
+  long-press to place selected block type. Virtual joystick (left screen half) with deadzone
+  and 8-direction quantization. SKCameraNode follow with lerp smoothing. SKNode debug overlay
+  showing live FPS, grid position, and block count. Pixel-perfect rendering via
+  SKTexture.filteringMode = .nearest.
+- **iOS SpriteKit Scaffold:** Replaced SwiftUI App/ContentView with UIKit entry point
+  hosting SKView. GameViewController configures SKView with 60fps, pixel-perfect scaling,
+  and culling. All game code in Sources/ (GameScene, Player, TerrainGenerator, Textures,
+  BlockInteraction, VirtualJoystick, DebugOverlay, IsometricMath, GameState).
 
 ### Added
 
