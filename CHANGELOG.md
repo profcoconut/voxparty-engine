@@ -2,7 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0.0] - 2026-03-30
+## [Unreleased]
+
+### Added
+
+- **iOS Isometric Minecraft Game (Sprint 2):** Full 2D isometric pixel art game in iOS SpriteKit.
+  Procedural 64x64 terrain via GameplayKit GKNoise (grass, dirt, stone, wood, leaves, water).
+  Grid-based 8-direction player movement with smooth animation. Tap to break blocks,
+  long-press to place selected block type. Virtual joystick (left screen half) with deadzone
+  and 8-direction quantization. SKCameraNode follow with lerp smoothing. SKNode debug overlay
+  showing live FPS, grid position, and block count. Pixel-perfect rendering via
+  SKTexture.filteringMode = .nearest.
+- **iOS SpriteKit Scaffold:** Replaced SwiftUI App/ContentView with UIKit entry point
+  hosting SKView. GameViewController configures SKView with 60fps, pixel-perfect scaling,
+  and culling. All game code in Sources/ (GameScene, Player, TerrainGenerator, Textures,
+  BlockInteraction, VirtualJoystick, DebugOverlay, IsometricMath, GameState).
 
 ### Added
 
@@ -24,7 +38,7 @@ All notable changes to this project will be documented in this file.
   triggered via Bevy observers. `BevyHapticManager` wraps platform haptic state as a
   `NonSend` resource. iOS: Core Haptics FFI via `objc2_core_haptics`. Android/desktop:
   no-op stub. Graceful degradation when haptics unavailable.
-- **Scene State Machine → Bevy State (Phase 6):** `GameStateSignal` (`Arc<Mutex<GameState>`)
+- **iOS Hello World Demo:** Minimal SwiftUI app (iOS 17, iPhone Simulator). XcodeGen-generated project (`project.yml`), interactive "Hello, World!" with tap counter, visual debug overlay showing live FPS (CADisplayLink), frame count, view depth, and device name via `utsname`.
   bridging SDL2 game loop and Bevy State API. `SceneData` resource with per-state timers.
   `TitleCardTimer` (3s), `GameOverTimer` (5s), `VictoryTimer` (10s) auto-transition via
   Bevy `Timer` resources. Transition functions: `go_to_episode_select`, `go_to_titlecard`,
