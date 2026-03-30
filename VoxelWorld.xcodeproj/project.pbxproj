@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0028060E1EBFCE68DDF46225 /* WorldGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5681813D3EB8B1B36C8C10 /* WorldGrid.swift */; };
+		1E54138037657DDCEC774DD4 /* GameDebugOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FDCE81F7683B0AA3FEE784 /* GameDebugOverlay.swift */; };
 		2089B3FBBF3FBE4412BB8E61 /* InventoryBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F8958CDFE12FAFA1FED1C7 /* InventoryBarView.swift */; };
 		335CF8D58A991868B9806BDB /* IsometricMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94A77A862B1B738BC7B2BF3 /* IsometricMath.swift */; };
 		3D15A57C4BF68FC9D9EBCFBC /* WorldCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F954907CF49214A7C518999 /* WorldCanvasView.swift */; };
@@ -21,6 +22,7 @@
 		5F954907CF49214A7C518999 /* WorldCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldCanvasView.swift; sourceTree = "<group>"; };
 		65D278F1453C3C1D14B71960 /* PlayerEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEntity.swift; sourceTree = "<group>"; };
 		8410B425D062B4ED89E4AC82 /* VoxelWorldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoxelWorldApp.swift; sourceTree = "<group>"; };
+		89FDCE81F7683B0AA3FEE784 /* GameDebugOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameDebugOverlay.swift; sourceTree = "<group>"; };
 		8A5681813D3EB8B1B36C8C10 /* WorldGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldGrid.swift; sourceTree = "<group>"; };
 		A94A77A862B1B738BC7B2BF3 /* IsometricMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsometricMath.swift; sourceTree = "<group>"; };
 		AEDD38D50456ECB284AA6D09 /* BlockType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockType.swift; sourceTree = "<group>"; };
@@ -36,6 +38,7 @@
 			children = (
 				F26B19386940B62B171F4A34 /* Info.plist */,
 				E84E7FAF9A2E99A8B7443056 /* App */,
+				CCF32C9E41946E14EFCEF3D9 /* Debug */,
 				EEAD09382D0BAD970D9B8733 /* Input */,
 				13E4554A42F2A90DEEE19399 /* Player */,
 				B46D3FFF82112793BCB351EA /* Rendering */,
@@ -85,6 +88,14 @@
 				5F954907CF49214A7C518999 /* WorldCanvasView.swift */,
 			);
 			path = Rendering;
+			sourceTree = "<group>";
+		};
+		CCF32C9E41946E14EFCEF3D9 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				89FDCE81F7683B0AA3FEE784 /* GameDebugOverlay.swift */,
+			);
+			path = Debug;
 			sourceTree = "<group>";
 		};
 		DD5D3989844C47F47C43BCB9 /* Products */ = {
@@ -170,6 +181,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				894E35C39F18CFC0A631CF89 /* BlockType.swift in Sources */,
+				1E54138037657DDCEC774DD4 /* GameDebugOverlay.swift in Sources */,
 				2089B3FBBF3FBE4412BB8E61 /* InventoryBarView.swift in Sources */,
 				335CF8D58A991868B9806BDB /* IsometricMath.swift in Sources */,
 				DAB73E290E16DE0B29EFE7EC /* PlayerEntity.swift in Sources */,

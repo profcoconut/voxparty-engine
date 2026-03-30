@@ -21,6 +21,18 @@ enum BlockType: Int, CaseIterable {
         }
     }
 
+    var name: String {
+        switch self {
+        case .air: return "Air"
+        case .grass: return "Grass"
+        case .dirt: return "Dirt"
+        case .stone: return "Stone"
+        case .wood: return "Wood"
+        case .leaves: return "Leaves"
+        case .water: return "Water"
+        }
+    }
+
     var isSolid: Bool {
         switch self {
         case .air, .water: return false

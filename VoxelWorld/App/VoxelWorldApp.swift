@@ -13,6 +13,7 @@ struct GameContentView: View {
     @StateObject private var worldGrid = WorldGrid()
     @StateObject private var player = PlayerEntity()
     @StateObject private var coordinator: TouchCoordinator
+    @State private var isDebugPresented = false
 
     init() {
         let grid = WorldGrid()
@@ -38,6 +39,35 @@ struct GameContentView: View {
                 coordinator.handleTap(gridX: gridX, gridY: gridY)
             }
             .ignoresSafeArea()
+
+            // Floating debug button
+            VStack {
+                HStack {
+                    Spacer()
+                    VoxelDebugButton(isDebugPresented: $isDebugPresented)
+                        .padding()
+                }
+                Spacer()
+            }
+
+            // Debug sheet
+            if isDebugPresented {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        isDebugPresented = false
+                    }
+
+                VStack {
+                    Spacer()
+                    VoxelDebugOverlay(isPresented: $isDebugPresented, player: player, worldGrid: worldGrid)
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal)
+                        .padding(.bottom, 120)
+                }
+                .transition(.move(edge: .bottom))
+            }
         }
+        .animation(.spring(response: 0.3), value: isDebugPresented)
     }
 }
