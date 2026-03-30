@@ -1,0 +1,12 @@
+{
+  "manager": "active",
+  "workers": {
+    "dev": "active",
+    "qa": "active",
+    "designer": "idle",
+    "devops": "active"
+  },
+  "current_sprint": 1,
+  "goal": "Complete iOS Swift Hello World demo with visual debug ability",
+  "items": ["setup-xcodegen", "hello-world-ui", "visual-debug-overlay", "build-ios", "smoke-test"]
+}

@@ -1,0 +1,60 @@
+{
+  "backlog": [
+    {
+      "id": "iso-rendering-core",
+      "title": "Isometric Rendering Core",
+      "description": "SwiftUI Canvas isometric grid, BlockType enum, WorldGrid, IsometricMath, WorldCanvasView",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "player-entity-movement",
+      "title": "Player Entity and Movement",
+      "description": "PlayerEntity with gridX/gridY, 8-dir movement, tap-to-move, depth-sorted rendering",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "block-breaking",
+      "title": "Block Breaking",
+      "description": "Tap adjacent block to destroy it, cooldown, particle flash",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "block-placing",
+      "title": "Block Placing",
+      "description": "Tap empty ground to place selected block from inventory",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "inventory-ui",
+      "title": "Inventory UI",
+      "description": "5-slot inventory bar, selected slot highlight, tap-to-select",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "touch-input",
+      "title": "Touch Input Coordinator",
+      "description": "Screen tap to grid coord conversion, dispatch to move/break/place",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "camera-follow",
+      "title": "Camera Follow System",
+      "description": "Camera centers on player, world scrolls as player moves",
+      "priority": "P0",
+      "area": "dev"
+    },
+    {
+      "id": "build-verification",
+      "title": "Build Verification",
+      "description": "xcodegen generate + xcodebuild + smoke test on simulator",
+      "priority": "P0",
+      "area": "devops"
+    }
+  ]
+}

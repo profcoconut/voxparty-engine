@@ -1,0 +1,20 @@
+{
+  "sprint": 2,
+  "status": "active",
+  "goal": "iOS 2D isometric pixel Minecraft-style game — core world, player, blocks, movement",
+  "items": ["iso-rendering-core", "player-entity-movement", "block-breaking", "block-placing", "inventory-ui", "touch-input", "camera-follow", "build-verification"],
+  "completed": [],
+  "skills_required": [
+    "Skill(\"compound-engineering:ce-plan\")",
+    "Skill(\"investigate\")",
+    "Skill(\"simplify\")",
+    "Skill(\"review\")",
+    "Skill(\"qa\")",
+    "Skill(\"browse\")",
+    "Skill(\"ship\")",
+    "Skill(\"retro\")",
+    "Skill(\"compound-engineering:ce-compound\")"
+  ],
+  "skills_completed": ["Skill(\"compound-engineering:ce-plan\")"],
+  "started_at": "2026-03-30T12:40:00Z"
+}

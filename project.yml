@@ -1,4 +1,4 @@
-name: HelloWorldDemo
+name: VoxelWorld
 options:
   bundleIdPrefix: com.voxparty
   deploymentTarget:
@@ -9,23 +9,23 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     TARGETED_DEVICE_FAMILY: "1,2"
-    INFOPLIST_FILE: HelloWorldDemo/Info.plist
-    PRODUCT_BUNDLE_IDENTIFIER: com.voxparty.HelloWorldDemo
+    INFOPLIST_FILE: VoxelWorld/Info.plist
+    PRODUCT_BUNDLE_IDENTIFIER: com.voxparty.VoxelWorld
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
 
 targets:
-  HelloWorldDemo:
+  VoxelWorld:
     type: application
     platform: iOS
     sources:
-      - path: HelloWorldDemo
+      - path: VoxelWorld
         excludes:
           - "**/.DS_Store"
     settings:
       base:
-        INFOPLIST_FILE: HelloWorldDemo/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.voxparty.HelloWorldDemo
+        INFOPLIST_FILE: VoxelWorld/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.voxparty.VoxelWorld
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
