@@ -406,7 +406,7 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let mut scene = Scene::new();
 
     // Phase 6: GameState signal — bridges SDL2 loop and Bevy State API
-    let mut game_state_signal = bevy_plugins::GameStateSignal::new();
+    let game_state_signal = bevy_plugins::GameStateSignal::new();
 
     // episode-select-1: List available episodes for selection screen
     let episodes = list_episodes();
@@ -455,8 +455,8 @@ fn inner_run(screen_w: u32, screen_h: u32) -> Result<(), String> {
     let mut telemetry_session_active = false;
 
     // qa-replay-1: Input recording state (F4 toggle)
-    let mut input_recorder: Option<InputRecorder> = None;
-    let mut is_recording = false;
+    let _input_recorder: Option<InputRecorder> = None;
+    let is_recording = false;
 
     // Screenshot mode: render one frame and save
     // Also handles --screenshot-hint which just renders+presents then exits
